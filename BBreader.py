@@ -200,6 +200,7 @@ class Database:
 
 def UpdateGameDirectory():
    global GAMEFOUND
+   global GAMEPATH
    GAMEPATH = filedialog.askdirectory()
    if GAMEPATH.split("/")[-1] != "data":
       GAMEPATH = "Bad Directory!"
@@ -213,6 +214,7 @@ def UpdateGameDirectory():
 
 def UpdateLogDirectory():
    global LOGFOUND
+   global LOGPATH
    LOGPATH = filedialog.askdirectory()
    if "log.html" not in os.listdir(LOGPATH):
       LOGPATH = "Bad Directory!"
