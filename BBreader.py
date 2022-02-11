@@ -1,17 +1,16 @@
 import os
+import sqlite3
+import shutil
+import sys
 from tkinter import filedialog
 from tkinter import *
-from bs4 import BeautifulSoup
-from pathlib import Path
+from tkinter.messagebox import askyesno
 from bs4 import BeautifulSoup
 from os import path
 from string import Template
-import sqlite3
-from contextlib import closing
 from contextlib import contextmanager
-from tkinter.messagebox import askyesno
-import shutil
-import sys
+
+
 
 @contextmanager
 def db_ops(db_name):
@@ -219,8 +218,8 @@ class Database:
          textLogPath.config(text = self.logpath)
          runButton.config(state = "normal")
          with db_ops(self.databaseName) as cur:
-            cur.execute("""UPDATE paths SET path = ? WHERE type = 'log'""", (self.gamepath,))
-            cur.execute("""UPDATE paths SET path = ? WHERE type = 'data'""", (self.logpath,))
+            cur.execute("""UPDATE paths SET path = ? WHERE type = 'log'""", (self.logpath,))
+            cur.execute("""UPDATE paths SET path = ? WHERE type = 'data'""", (self.gamepath,))
       else:
          runButton.config(state = "disabled")
 
