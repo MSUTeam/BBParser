@@ -259,6 +259,7 @@ class Database:
          self.initDatabase()
          textGamePath.config(text = "Browse to your game directory")
          textLogPath.config(text = "Browse to your log.html directory (documents/Battle Brothers/)")
+         self.checkButtonStatus()
 
    def DeleteModSettings(self):
       pass
