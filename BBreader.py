@@ -113,8 +113,8 @@ class ParseObject:
       self.database = _database # could use that idk
       ResultEntry.delete('1.0', END)
 
-   def parse(self):
-      commands = self.getCommands()
+   def parse(self, _alternateFilePath = None):
+      commands = self.getCommands(_alternateFilePath)
       for command in commands:
          commandType = command[0]
          modName = command[1]
@@ -130,9 +130,10 @@ class ParseObject:
                mod["Options"][commandType] = self.Options[commandType](commandType, modName, self.database)
          mod["Options"][commandType].handleAction(command)
 
-   def getCommands(self):
+   def getCommands(self, _alternateFilePath):
       results = []
-      with open(self.database.logpath + "/log.html") as fp:
+      filepath = self.database.logpath + "/log.html" if _alternateFilePath == None else _alternateFilePath
+      with open(filepath) as fp:
          soup = BeautifulSoup(fp, "html.parser")
          logInfoArray = soup.findAll(class_ = "text")
          for entry in logInfoArray:
@@ -158,7 +159,6 @@ class ParseObject:
 
 # ------------------------------------------------ visuals -----------------------------------------
 
-#just a namespace atm
 class Database:
    def __init__(self, _databaseName):
       self.databaseName = _databaseName
@@ -225,10 +225,20 @@ class Database:
 
    def UpdateText(self):
       parseobj = ParseObject(self)
-      parseobj.parse()
+      if DEBUGGING:
+         self.WriteTestLog()
+         parseobj.parse("log.html")
+      else:
+         parseobj.parse()
       parseobj.write_files()
 
-   def DeleteSettings(self):
+   def WriteTestLog(self):
+      with open("log.html", "w") as log:
+         log.write("""<div class="text">PARSEME;String;MSU;this.MSU.SettingsManager.updateSetting(MSU, logall, true);</div>""")
+         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
+
+
+   def DeleteAllSettings(self):
       answer = askyesno("Delete all settings", "Are you sure? This will delete all files in your mod_config and the database.")
       if answer:
          os.remove(self.databaseName)
@@ -238,6 +248,9 @@ class Database:
          self.initDatabase()
          textGamePath.config(text = "Browse to your game directory")
          textLogPath.config(text = "Browse to your log.html directory (documents/Battle Brothers/)")
+
+   def DeleteModSettings(self):
+      pass
       
 
 global DBNAME
@@ -247,6 +260,9 @@ else:
    DBNAME = 'mod_settings.db'
 
 defaultDB = Database(DBNAME)
+
+global DEBUGGING
+DEBUGGING = True
 
 
 
@@ -264,7 +280,7 @@ buttonDirectory.grid(row=4, column=1)
 runButton = Button(root, text="Update settings", command=defaultDB.UpdateText, state="disabled")
 runButton.grid(row=5, column=0)
 
-deleteButton = Button(root, text="Delete settings", command=defaultDB.DeleteSettings, state="active")
+deleteButton = Button(root, text="Delete settings", command=defaultDB.DeleteAllSettings, state="active")
 deleteButton.grid(row=5, column=1)
 
 ResultEntry = Text(root)
