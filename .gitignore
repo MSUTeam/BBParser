@@ -1,2 +1,7 @@
 *.db
 log.html
+__pycache__/
+build/
+dist/
+BBreader.spec
+build.ps1

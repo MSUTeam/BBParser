@@ -36,6 +36,12 @@ class Option:
       with db_ops(self.database.databaseName) as cur:
          cur.execute("CREATE TABLE IF NOT EXISTS " + self.dbkey + " (test text)")
 
+   def returnWriteResult(self, _result):
+      return "Mod {modID} wrote option {id}: {result}".format(modID = self.modID, id = self.id, result = _result)
+
+   def returnFileHeader(self):
+      return 'this.logInfo("{modID}::{id} is being executed");\n'.format(modID = self.modID, id = self.id)
+
 
    def scrub(self, table_name):
     return ''.join( chr for chr in table_name if chr.isalnum() )
@@ -57,8 +63,9 @@ class WriteString(Option):
 
    def writeToFile(self, _file, _fileObj):
       with open(_file + ".nut", 'a') as f:
+         f.write(self.returnFileHeader())
          f.write(self.toPrint)
-      _fileObj.TotalWritten.append(self.dbkey + " : " + self.toPrint)
+      _fileObj.TotalWritten.append(self.returnWriteResult(self.toPrint))
       self.toPrint = ""
 
 # example for more complicated parsing like creating a dict
@@ -66,16 +73,15 @@ class WriteModSetting(Option):
    def __init__(self,  _id, _modID, _database):
       super().__init__( _id, _modID, _database)
       self.Table = {}
-      self.Template = """this.MSU.SettingsManager.updateSettings({"$modID", "$setting", $value)"""
+      self.Template = """this.MSU.SettingsManager.updateSetting("$modID", "$setting", $value)"""
 
    def initDatabase(self):
-      key = self.scrub(self.modID + self.id)
       with db_ops(self.database.databaseName) as cur:
-         cur.execute("CREATE TABLE IF NOT EXISTS " + key + " (modID text, settingID text, value text)")
-      self.dbkey = key
+         cur.execute("CREATE TABLE IF NOT EXISTS " + self.dbkey + " (modID text, settingID text, value text)")
 
 
    def handleAction(self, action):
+      action = [self.scrub(entry) for entry in action]
       modID = action[1]
       setting = action[2]
       value = action[3]
@@ -92,12 +98,13 @@ class WriteModSetting(Option):
       with db_ops(self.database.databaseName) as cur:
          cur.execute("SELECT * FROM " + self.dbkey)
          with open(_file + ".nut", 'w') as f:
+            f.write(self.returnFileHeader())
             rows = cur.fetchall()
             for row in rows:
                temp = Template(self.Template)
                sub = temp.substitute(modID = row[0], setting = row[1], value = row[2])
                f.write(sub)
-               _fileObj.TotalWritten.append(self.dbkey + " : " + sub)
+               _fileObj.TotalWritten.append(self.returnWriteResult(sub))
       self.toPrint = ""
 
 
@@ -130,6 +137,9 @@ class ParseObject:
                mod["Options"][commandType] = self.Options[commandType](commandType, modName, self.database)
          mod["Options"][commandType].handleAction(command)
 
+   def scrub(self, table_name):
+      return ''.join( chr for chr in table_name if chr.isalnum() )
+
    def getCommands(self, _alternateFilePath):
       results = []
       filepath = self.database.logpath + "/log.html" if _alternateFilePath == None else _alternateFilePath
@@ -157,7 +167,7 @@ class ParseObject:
          ResultEntry.insert(END, msg)
 
 
-# ------------------------------------------------ visuals -----------------------------------------
+
 
 class Database:
    def __init__(self, _databaseName):
@@ -234,7 +244,8 @@ class Database:
 
    def WriteTestLog(self):
       with open("log.html", "w") as log:
-         log.write("""<div class="text">PARSEME;String;MSU;this.MSU.SettingsManager.updateSetting(MSU, logall, true);</div>""")
+         log.write("""<div class="text">PARSEME;String;Vanilla;this.logInfo("Hello, World!");</div>""")
+         log.write("""<div class="text">PARSEME;String;MSU;this.MSU.SettingsManager.updateSetting("MSU", "logall", false);</div>""")
          log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
 
 
@@ -264,7 +275,7 @@ defaultDB = Database(DBNAME)
 global DEBUGGING
 DEBUGGING = True
 
-
+# ------------------------------------------------ visuals -----------------------------------------
 
 textHeading = Label(root, text="Battle Brothers Reader, database: " + DBNAME)
 textHeading.grid(row=0, column=0)
