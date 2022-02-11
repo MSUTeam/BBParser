@@ -30,14 +30,14 @@ class Option:
       self.modID = _modID
       self.database = _database
       self.dbkey = self.scrub(self.modID + self.id)
-      self.initDatabase()
+      
 
    def initDatabase(self):
       with db_ops(self.database.databaseName) as cur:
          cur.execute("CREATE TABLE IF NOT EXISTS " + self.dbkey + " (test text)")
 
    def returnWriteResult(self, _result):
-      return "Mod {modID} wrote option {id}: {result}".format(modID = self.modID, id = self.id, result = _result)
+      return "\nMod {modID} wrote option {id}: {result}".format(modID = self.modID, id = self.id, result = _result)
 
    def returnFileHeader(self):
       return 'this.logInfo("{modID}::{id} is being executed");\n'.format(modID = self.modID, id = self.id)
@@ -52,14 +52,14 @@ class Option:
    def writeToFile(self, _file, _fileObj):
       pass
 
-#Base Type
+#Simple type that doesn't write to the DB
 class WriteString(Option):
    def __init__(self, _id, _modID, _database):
       super().__init__(_id, _modID, _database)
       self.toPrint = ""
 
    def handleAction(self, action):
-      self.toPrint += action[2] +"\n"
+      self.toPrint += "\n" + action[2]
 
    def writeToFile(self, _file, _fileObj):
       with open(_file + ".nut", 'a') as f:
@@ -68,31 +68,24 @@ class WriteString(Option):
       _fileObj.TotalWritten.append(self.returnWriteResult(self.toPrint))
       self.toPrint = ""
 
-# example for more complicated parsing like creating a dict
-class WriteModSetting(Option):
-   def __init__(self,  _id, _modID, _database):
+#Type that writes to DB and prints all rows
+class WriteDatabase(Option):
+   def __init__(self,  _id, _modID, _database, _template, _templateArguments):
       super().__init__( _id, _modID, _database)
-      self.Table = {}
-      self.Template = """this.MSU.SettingsManager.updateSetting("$modID", "$setting", $value)"""
+      self.Template = _template 
+      self.TemplateArguments = _templateArguments
+      self.initDatabase()
 
    def initDatabase(self):
+      columns = " ("
+      for idx, colName in enumerate(self.TemplateArguments):
+         columns += colName + " text"
+         if idx != len(self.TemplateArguments) -1:
+            columns += ", "
+      columns += ")"
+      print(self.dbkey + columns)
       with db_ops(self.database.databaseName) as cur:
-         cur.execute("CREATE TABLE IF NOT EXISTS " + self.dbkey + " (modID text, settingID text, value text)")
-
-
-   def handleAction(self, action):
-      action = [self.scrub(entry) for entry in action]
-      modID = action[1]
-      setting = action[2]
-      value = action[3]
-      with db_ops(self.database.databaseName) as cur:
-         cur.execute("SELECT * FROM " + self.dbkey + " WHERE settingID = ?", (setting,))
-         rows = cur.fetchall()
-         if(len(rows) == 0):
-            cur.execute("INSERT INTO " + self.dbkey + " VALUES (?, ?, ?)" , (modID, setting, value))
-         else:
-            cur.execute("UPDATE " + self.dbkey + " SET value = :value WHERE modID = :modID and settingID = :setting", {"value" : value, "modID" : modID, "setting" : setting })
-
+         cur.execute("CREATE TABLE IF NOT EXISTS " + self.dbkey + columns)
 
    def writeToFile(self, _file, _fileObj):
       with db_ops(self.database.databaseName) as cur:
@@ -101,12 +94,45 @@ class WriteModSetting(Option):
             f.write(self.returnFileHeader())
             rows = cur.fetchall()
             for row in rows:
+
+               argmap = {}
+               for idx, arg in enumerate(self.TemplateArguments):
+                  argmap[arg] = row[idx]
                temp = Template(self.Template)
-               sub = temp.substitute(modID = row[0], setting = row[1], value = row[2])
+               sub = temp.substitute(argmap)
                f.write(sub)
                _fileObj.TotalWritten.append(self.returnWriteResult(sub))
-      self.toPrint = ""
 
+
+class WriteModSetting(WriteDatabase):
+   def handleAction(self, action):
+      action = [self.scrub(entry) for entry in action]
+      modID = action[1]
+      settingID = action[2]
+      value = action[3]
+      with db_ops(self.database.databaseName) as cur:
+         cur.execute("SELECT * FROM " + self.dbkey + " WHERE settingID = ?", (settingID,))
+         rows = cur.fetchall()
+         if(len(rows) == 0):
+            cur.execute("INSERT INTO " + self.dbkey + " VALUES (?, ?, ?)" , (modID, settingID, value))
+         else:
+            cur.execute("UPDATE " + self.dbkey + " SET value = :value WHERE modID = :modID and settingID = :settingID", {"value" : value, "modID" : modID, "settingID" : settingID })
+
+class WriteKeybind(WriteDatabase):
+   def scrub(self, table_name):
+      return ''.join( chr for chr in table_name if (chr.isalnum() or chr == "+" or chr == "_"))
+
+   def handleAction(self, action):
+      action = [self.scrub(entry) for entry in action]
+      settingID = action[2]
+      value = action[3]
+      with db_ops(self.database.databaseName) as cur:
+         cur.execute("SELECT * FROM " + self.dbkey + " WHERE settingID = ?", (settingID,))
+         rows = cur.fetchall()
+         if(len(rows) == 0):
+            cur.execute("INSERT INTO " + self.dbkey + " VALUES (?, ?)" , (settingID, value))
+         else:
+            cur.execute("UPDATE " + self.dbkey + " SET value = :value WHERE settingID = :settingID", {"value" : value, "settingID" : settingID })
 
 
 class ParseObject:
@@ -115,7 +141,8 @@ class ParseObject:
       self.Mods = {}
       self.Options = {
          "ModSetting" : WriteModSetting, 
-         "Default" : WriteString
+         "Default" : WriteString,
+         "Keybind" : WriteKeybind
       }
       self.database = _database # could use that idk
       ResultEntry.delete('1.0', END)
@@ -131,10 +158,14 @@ class ParseObject:
             }
          mod = self.Mods[modName]
          if (commandType in mod["Options"]) == False:
-            if commandType not in self.Options:
-               mod["Options"][commandType] = self.Options["Default"](commandType, modName, self.database)
+            
+            if commandType == "ModSetting":
+               mod["Options"][commandType] = WriteModSetting(commandType, modName, self.database, """this.MSU.SettingsManager.updateSetting("$modID", "$settingID", $value)""", ["modID", "settingID", "value"])
+            elif commandType == "Keybind":
+               mod["Options"][commandType] = WriteKeybind(commandType, modName, self.database, """this.MSU.CustomKeybinds.set("$settingID", "$value")""", ["settingID", "value"])
             else:
-               mod["Options"][commandType] = self.Options[commandType](commandType, modName, self.database)
+               mod["Options"][commandType] = WriteString(commandType, modName, self.database)
+
          mod["Options"][commandType].handleAction(command)
 
    def scrub(self, table_name):
@@ -151,7 +182,6 @@ class ParseObject:
             if contents[0] == "PARSEME":
                results.append(contents[1:])
       return results
-
 
    def write_files(self):
       modConfigPath = self.database.gamepath + "/mod_config"
@@ -247,6 +277,8 @@ class Database:
          log.write("""<div class="text">PARSEME;String;Vanilla;this.logInfo("Hello, World!");</div>""")
          log.write("""<div class="text">PARSEME;String;MSU;this.MSU.SettingsManager.updateSetting("MSU", "logall", false);</div>""")
          log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
+
+         log.write("""<div class="text">PARSEME;Keybind;MSU;character_toggleCharacterMenu_1;c+ctrl</div>""")
 
 
    def DeleteAllSettings(self):
