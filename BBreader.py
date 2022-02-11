@@ -9,6 +9,9 @@ from string import Template
 import sqlite3
 from contextlib import closing
 from contextlib import contextmanager
+from tkinter.messagebox import askyesno
+import shutil
+import sys
 
 @contextmanager
 def db_ops(db_name):
@@ -21,12 +24,6 @@ def db_ops(db_name):
 root = Tk()
 
 
-global GAMEPATH
-global LOGPATH
-GAMEFOUND = False
-LOGFOUND = False
-
-
 # Base Class, some type of command that treats the passed data in a specific way
 class Option:
    def __init__(self, _id, _modID, _database):
@@ -37,7 +34,7 @@ class Option:
       self.initDatabase()
 
    def initDatabase(self):
-      with db_ops('mod_settings.db') as cur:
+      with db_ops(self.database.databaseName) as cur:
          cur.execute("CREATE TABLE IF NOT EXISTS " + self.dbkey + " (test text)")
 
 
@@ -47,7 +44,7 @@ class Option:
    def handleAction(self, action):
       pass
 
-   def writeToFile(self, _file, _path, _fileObj):
+   def writeToFile(self, _file, _fileObj):
       pass
 
 #Base Type
@@ -59,10 +56,10 @@ class WriteString(Option):
    def handleAction(self, action):
       self.toPrint += action[2] +"\n"
 
-   def writeToFile(self, _file, _path, _fileObj):
-      _file.write(self.toPrint)
-      #print(self.id  + " for " + self.modID + " wrote " + self.toPrint)
-      _fileObj.TotalWritten.append(self.toPrint)
+   def writeToFile(self, _file, _fileObj):
+      with open(_file + ".nut", 'a') as f:
+         f.write(self.toPrint)
+      _fileObj.TotalWritten.append(self.dbkey + " : " + self.toPrint)
       self.toPrint = ""
 
 # example for more complicated parsing like creating a dict
@@ -74,52 +71,47 @@ class WriteModSetting(Option):
 
    def initDatabase(self):
       key = self.scrub(self.modID + self.id)
-      with db_ops('mod_settings.db') as cur:
+      with db_ops(self.database.databaseName) as cur:
          cur.execute("CREATE TABLE IF NOT EXISTS " + key + " (modID text, settingID text, value text)")
-      self.DBKey = key
+      self.dbkey = key
 
 
    def handleAction(self, action):
-      modID = action[0]
-      setting = action[1]
-      value = action[2]
-      with db_ops('mod_settings.db') as cur:
-         cur.execute("SELECT * FROM " + self.DBKey + " WHERE settingID = ?", (setting,))
+      modID = action[1]
+      setting = action[2]
+      value = action[3]
+      with db_ops(self.database.databaseName) as cur:
+         cur.execute("SELECT * FROM " + self.dbkey + " WHERE settingID = ?", (setting,))
          rows = cur.fetchall()
          if(len(rows) == 0):
-            print("INSERT?")
-            cur.execute("INSERT INTO " + self.DBKey + " VALUES (?, ?, ?)" , (modID, setting, value))
+            cur.execute("INSERT INTO " + self.dbkey + " VALUES (?, ?, ?)" , (modID, setting, value))
          else:
-            print("UPDATE?")
-            cur.execute("UPDATE " + self.DBKey + " SET value = :value WHERE modID = :modID and settingID = :setting", {"value" : value, "modID" : modID, "setting" : setting })
+            cur.execute("UPDATE " + self.dbkey + " SET value = :value WHERE modID = :modID and settingID = :setting", {"value" : value, "modID" : modID, "setting" : setting })
 
 
-
-      # if modID not in self.Table:
-      #    self.Table[modID] = {}
-      # if setting not in self.Table[modID]:
-      #    self.Table[modID][setting] = None
-      # self.Table[modID][setting] = value
-
-
-      # for modID in self.Table:
-      #    for setting in self.Table[modID]:
-      #       temp = Template(self.Template)
-      #       sub = temp.substitute(modID = modID, setting = setting, value = self.Table[modID][setting])
-      #       self.toPrint += sub
-      # super().writeToFile(_file)
+   def writeToFile(self, _file, _fileObj):
+      with db_ops(self.database.databaseName) as cur:
+         cur.execute("SELECT * FROM " + self.dbkey)
+         with open(_file + ".nut", 'w') as f:
+            rows = cur.fetchall()
+            for row in rows:
+               temp = Template(self.Template)
+               sub = temp.substitute(modID = row[0], setting = row[1], value = row[2])
+               f.write(sub)
+               _fileObj.TotalWritten.append(self.dbkey + " : " + sub)
+      self.toPrint = ""
 
 
 
 class ParseObject:
-   def __init__(self):
+   def __init__(self, _database):
       self.TotalWritten = []
       self.Mods = {}
       self.Options = {
          "ModSetting" : WriteModSetting, 
          "Default" : WriteString
       }
-      self.connection = None # could use that idk
+      self.database = _database # could use that idk
       ResultEntry.delete('1.0', END)
 
    def parse(self):
@@ -134,14 +126,14 @@ class ParseObject:
          mod = self.Mods[modName]
          if (commandType in mod["Options"]) == False:
             if commandType not in self.Options:
-               mod["Options"][commandType] = self.Options["Default"](commandType, modName, self.connection)
+               mod["Options"][commandType] = self.Options["Default"](commandType, modName, self.database)
             else:
-               mod["Options"][commandType] = self.Options[commandType](commandType, modName, self.connection)
+               mod["Options"][commandType] = self.Options[commandType](commandType, modName, self.database)
          mod["Options"][commandType].handleAction(command)
 
    def getCommands(self):
       results = []
-      with open(LOGPATH+"/log.html") as fp:
+      with open(self.database.logpath + "/log.html") as fp:
          soup = BeautifulSoup(fp, "html.parser")
          logInfoArray = soup.findAll(class_ = "text")
          for entry in logInfoArray:
@@ -152,10 +144,7 @@ class ParseObject:
 
 
    def write_files(self):
-      modConfigPath = GAMEPATH + "/mod_config"
-      if path.isdir(modConfigPath) == False:
-            os.mkdir(modConfigPath)
-
+      modConfigPath = self.database.gamepath + "/mod_config"
       for mod, modContents in self.Mods.items():
          modPath = path.join(modConfigPath, mod)
          if path.isdir(modPath) == False:
@@ -163,111 +152,128 @@ class ParseObject:
          for option, optionContents in modContents.items():
             for optionType, optionClass in optionContents.items():
                typePath = path.join(modPath, optionType)
-               with open(typePath + ".nut", 'a') as f:
-                  optionClass.writeToFile(f, typePath + ".nut", self)
-      
-      ResultEntry.insert(END, self.TotalWritten)
+               optionClass.writeToFile(typePath, self)
+      for msg in self.TotalWritten:
+         ResultEntry.insert(END, msg)
 
 
 # ------------------------------------------------ visuals -----------------------------------------
 
+#just a namespace atm
 class Database:
-   def initDatabase(_dbID):
-      global LOGFOUND
-      global GAMEFOUND
-      with db_ops(_dbID) as cur:
+   def __init__(self, _databaseName):
+      self.databaseName = _databaseName
+      self.initDatabase()
+
+   def initDatabase(self):
+      self.gamepath = None
+      self.logpath = None
+      with db_ops(self.databaseName) as cur:
          cur.execute('CREATE TABLE IF NOT EXISTS paths (type text, path text)')
          cur.execute('SELECT path FROM paths WHERE type="data"')
-         global GAMEPATH
-         GAMEPATH = cur.fetchone()
-         if(GAMEPATH != None):
-            GAMEPATH = GAMEPATH[0]
-            GAMEFOUND = True
+         gamedir = cur.fetchone()
+         if(gamedir != None):
+            self.gamepath = gamedir[0]
          else:
             cur.execute('INSERT INTO paths VALUES ("data", Null)')
 
 
          cur.execute('SELECT path FROM paths WHERE type="log"')
-         global LOGPATH
-         LOGPATH = cur.fetchone()
-         if(LOGPATH != None):
-            LOGPATH = LOGPATH[0]
-            LOGFOUND = True
+         logdir = cur.fetchone()
+         if(logdir != None):
+            self.logpath = logdir[0]
          else:
             cur.execute('INSERT INTO paths VALUES ("log", Null)')
 
 
+   def UpdateGameDirectory(self):
+      directory = filedialog.askdirectory()
+      if directory.split("/")[-1] != "data":
+         textGamePath.config(text = "Bad Directory!")
+      else:
+         self.gamepath = directory
+         textGamePath.config(text = self.gamepath)
+         modConfigPath = self.gamepath + "/mod_config"
+         if path.isdir(modConfigPath) == False:
+               os.mkdir(modConfigPath)
 
-def UpdateGameDirectory():
-   global GAMEFOUND
-   global GAMEPATH
-   GAMEPATH = filedialog.askdirectory()
-   if GAMEPATH.split("/")[-1] != "data":
-      GAMEPATH = "Bad Directory!"
-      textGamePath.config(text = GAMEPATH)
-      GAMEFOUND = False
-   else:
-      GAMEFOUND = True
-      textGamePath.config(text = GAMEPATH)
-   checkButton()
+      self.checkButtonStatus()
    
 
-def UpdateLogDirectory():
-   global LOGFOUND
-   global LOGPATH
-   LOGPATH = filedialog.askdirectory()
-   if "log.html" not in os.listdir(LOGPATH):
-      LOGPATH = "Bad Directory!"
-      textGamePath.config(text = LOGPATH)
-      LOGFOUND = False
-   else:
-      LOGFOUND = True
-      textLogPath.config(text = LOGPATH)
-   checkButton()
+   def UpdateLogDirectory(self):
+      directory = filedialog.askdirectory()
+      if directory.split("/")[-1] != "Battle Brothers":
+         textLogPath.config(text = "Bad Directory!")
+      else:
+         self.logpath = directory
+         textLogPath.config(text = self.logpath)
+
+      self.checkButtonStatus()
    
-def isButtonValid():
-   return LOGFOUND and GAMEFOUND
+   def isButtonValid(self):
+      return self.gamepath != None and self.logpath != None
 
-def checkButton():
-   if isButtonValid():
-      with db_ops('mod_settings.db') as cur:
-         myButton.config(state = "normal")
-         cur.execute("""UPDATE paths SET path = ? WHERE type = 'log'""", (LOGPATH,))
-         cur.execute("""UPDATE paths SET path = ? WHERE type = 'data'""", (GAMEPATH,))
+   def checkButtonStatus(self):
+      if self.isButtonValid():
+         textGamePath.config(text = self.gamepath)
+         textLogPath.config(text = self.logpath)
+         runButton.config(state = "normal")
+         with db_ops(self.databaseName) as cur:
+            cur.execute("""UPDATE paths SET path = ? WHERE type = 'log'""", (self.gamepath,))
+            cur.execute("""UPDATE paths SET path = ? WHERE type = 'data'""", (self.logpath,))
+      else:
+         runButton.config(state = "disabled")
 
-   else:
-      myButton.config(state = "disabled")
+   def UpdateText(self):
+      parseobj = ParseObject(self)
+      parseobj.parse()
+      parseobj.write_files()
+
+   def DeleteSettings(self):
+      answer = askyesno("Delete all settings", "Are you sure? This will delete all files in your mod_config and the database.")
+      if answer:
+         os.remove(self.databaseName)
+         ResultEntry.delete('1.0', END)
+         if self.gamepath != None and path.isdir(self.gamepath+"/mod_config"):
+            shutil.rmtree(self.gamepath+"/mod_config")
+         self.initDatabase()
+         textGamePath.config(text = "Browse to your game directory")
+         textLogPath.config(text = "Browse to your log.html directory (documents/Battle Brothers/)")
+      
+
+global DBNAME
+if(len(sys.argv) > 1):
+   DBNAME = sys.argv[1]
+else:
+   DBNAME = 'mod_settings.db'
+
+defaultDB = Database(DBNAME)
 
 
 
-def UpdateText():
-   parseobj = ParseObject()
-   parseobj.parse()
-   parseobj.write_files()
-
-
-
-Database.initDatabase('mod_settings.db')
-
-
-
-textHeading = Label(root, text="Battle Brothers Reader")
+textHeading = Label(root, text="Battle Brothers Reader, database: " + DBNAME)
 textHeading.grid(row=0, column=0)
-textGamePath = Label(root, text = GAMEPATH if GAMEPATH != None else "Browse to your game directory")
+textGamePath = Label(root, text = "Browse to your game directory")
 textGamePath.grid(row=3, column=0)
-buttonDirectory =  Button(text="Browse", command=UpdateGameDirectory)
+buttonDirectory =  Button(text="Browse", command=defaultDB.UpdateGameDirectory)
 buttonDirectory.grid(row=3, column=1)
-textLogPath = Label(root, text=LOGPATH if LOGPATH != None else "Browse to your log.html directory (documents/Battle Brothers/)")
+textLogPath = Label(root, text="Browse to your log.html directory (documents/Battle Brothers/)")
 textLogPath.grid(row=4, column=0)
-buttonDirectory =  Button(text="Browse", command=UpdateLogDirectory)
+buttonDirectory =  Button(text="Browse", command=defaultDB.UpdateLogDirectory)
 buttonDirectory.grid(row=4, column=1)
 
-myButton = Button(root, text="Update settings", command=UpdateText, state="disabled")
-myButton.grid(row=5, column=0)
+runButton = Button(root, text="Update settings", command=defaultDB.UpdateText, state="disabled")
+runButton.grid(row=5, column=0)
+
+deleteButton = Button(root, text="Delete settings", command=defaultDB.DeleteSettings, state="active")
+deleteButton.grid(row=5, column=1)
+
 ResultEntry = Text(root)
 ResultEntry.grid(row=6)
 
-checkButton()
+defaultDB.checkButtonStatus()
+
+
 
 
 
