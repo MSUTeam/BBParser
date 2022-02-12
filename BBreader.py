@@ -241,9 +241,14 @@ class Database:
 
 
 
-   def RunParse(self):
+   def RunParse(self, _input = None):
       parsemanager = ParseManager(self)
-      if DEBUGGING:
+      if _input != None:
+         self.writeInputLog(_input)
+         parsemanager.parse("local_log.html")
+         parsemanager.write_files("./mod_config")
+         os.remove("local_log.html")
+      elif DEBUGGING:
          self.WriteTestLog()
          parsemanager.parse("log.html")
          parsemanager.write_files("./mod_config")
@@ -256,16 +261,22 @@ class Database:
       self.gui.AddMsg("Completed!")
       self.gui.UpdateOutput()
 
+   def writeInputLog(self, _input):
+      with open("local_log.html", "w") as log:
+         for line in _input.split(";"):
+            log.write("""<div class="text">PARSEME;Global;MSU;""" + line.rstrip() + """</div>""")
+
    def WriteTestLog(self):
       with open("log.html", "w") as log:
          log.write("""<div class="text">PARSEME;String;Vanilla;this.logInfo("Hello, World!");</div>""")
 
 
-         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
-         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;false;</div>""")
-         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
-         for x in range(100):
-            log.write("<div class='text'>PARSEME;Keybind;MSU;{idx};c+ctrl</div>".format(idx = x))
+         # log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
+         # log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;false;</div>""")
+         # log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
+         # log.write("""<div class="text">PARSEME;PerkBuild;PlanPerks;this.World.Perks.importPerkBuilds("124$perk.hold_out#1+perk.rotation#1+perk.bags_and_belts#1+perk.mastery.polearm#1+~");</div>""")
+         # for x in range(100):
+         #    log.write("<div class='text'>PARSEME;Keybind;MSU;{idx};c+ctrl</div>".format(idx = x))
 
    def RemoveDB(self, _fileName):
       _path = self.dbFolder + _fileName + ".db"
@@ -340,8 +351,11 @@ class GUI:
       self.deleteAllButton = Button(root, text="Delete all settings", command=self.DeleteAllSettings, state="active")
       self.deleteAllButton.grid(row=7, column=1)
 
-      self.runButton = Button(root, text="Update settings", command=self.RunParse, state="disabled")
-      self.runButton.grid(row=8, column=0)
+      self.runFileButton = Button(root, text="Update settings", command=self.RunFileParse, state="disabled")
+      self.runFileButton.grid(row=8, column=0)
+
+      self.runInputButton = Button(root, text="Execute current input", command=self.RunInputParse, state="active")
+      self.runInputButton.grid(row=8, column=1)
 
 
       self.ResultEntry = Text(root)
@@ -389,7 +403,7 @@ class GUI:
          _button.config(state = "disabled")
 
    def UpdateButtons(self):
-      self.UpdateButtonStatus(self.runButton, self.database.IsReadyToRun())
+      self.UpdateButtonStatus(self.runFileButton, self.database.IsReadyToRun())
       self.UpdateButtonStatus(self.deleteSingleModButton, self.database.modConfigPath != None)
       self.UpdateButtonStatus(self.deleteSingleSettingButton, self.database.modConfigPath != None)
 
@@ -398,10 +412,15 @@ class GUI:
       self.UpdateStringVarText(self.logPathVar, "Select your log.html file (documents/Battle Brothers/log.html)")
 
 
-   def RunParse(self):
+   def RunFileParse(self):
       self.ClearOutput()
       self.AddMsg("Trying to parse file")
       self.database.RunParse()
+
+   def RunInputParse(self):
+      self.AddMsg("Trying to parse input")
+      text = self.ResultEntry.get("1.0",END)
+      self.database.RunParse(text)
 
    def DeleteAllSettings(self):
       answer = askyesno("Delete all settings", "Are you sure? This will delete all files in your mod_config and the database.")
