@@ -159,9 +159,9 @@ class ParseManager:
          if (commandType in mod["Options"]) == False:
             
             if commandType == "ModSetting":
-               mod["Options"][commandType] = WriteModSetting(commandType, modName, self.database, """this.MSU.SettingsManager.updateSetting("$modID", "$settingID", $value)""", ["modID", "settingID", "value"])
+               mod["Options"][commandType] = WriteModSetting(commandType, modName, self.database, """this.MSU.SettingsManager.updateSetting("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
             elif commandType == "Keybind":
-               mod["Options"][commandType] = WriteKeybind(commandType, modName, self.database, """this.MSU.CustomKeybinds.set("$settingID", "$value")""", ["settingID", "value"])
+               mod["Options"][commandType] = WriteKeybind(commandType, modName, self.database, """this.MSU.CustomKeybinds.set("$settingID", "$value");\n""", ["settingID", "value"])
             else:
                mod["Options"][commandType] = WriteString(commandType, modName, self.database)
 
