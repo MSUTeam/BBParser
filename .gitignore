@@ -5,3 +5,5 @@ build/
 dist/
 BBreader.spec
 build.ps1
+mod_config/
+mod_db/
