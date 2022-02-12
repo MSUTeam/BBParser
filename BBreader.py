@@ -21,6 +21,7 @@ def db_ops(db_name):
    conn.close()
 
 root = Tk()
+global DEBUGGING
 
 
 # Base Class, some type of command that treats the passed data in a specific way
@@ -244,6 +245,19 @@ class Database:
    def RunParse(self, _input = None):
       parsemanager = ParseManager(self)
       if _input != None:
+         global DEBUGGING
+         if _input.rstrip() == "ENABLE DEBUG":
+            DEBUGGING = True
+            self.gui.AddMsg("DEBUGGING ENABLED")
+            self.gui.UpdateOutput()
+            return
+         elif _input.rstrip() == "DISABLE DEBUG":
+            DEBUGGING = False
+            print("DEBUGGING ENABLED")
+            self.gui.AddMsg("DEBUGGING ENABLED")
+            self.gui.UpdateOutput()
+            return
+
          self.writeInputLog(_input)
          parsemanager.parse("local_log.html")
          parsemanager.write_files("./mod_config")
@@ -252,6 +266,7 @@ class Database:
          self.WriteTestLog()
          parsemanager.parse("log.html")
          parsemanager.write_files("./mod_config")
+         os.remove("log.html")
       else:
          parsemanager.parse(self.logPath)
          parsemanager.write_files(self.modConfigPath)
@@ -261,6 +276,7 @@ class Database:
       self.gui.AddMsg("Completed!")
       self.gui.UpdateOutput()
 
+   #this can be expanded to parse things further
    def writeInputLog(self, _input):
       with open("local_log.html", "w") as log:
          for line in _input.split(";"):
@@ -296,14 +312,15 @@ class Database:
       if path.isdir(self.dbFolder):
          self.gui.AddMsg("Deleted folder " + self.dbFolder)
          shutil.rmtree(self.dbFolder)
-      if DEBUGGING == False:
-         if self.modConfigPath != None and path.isdir(self.modConfigPath):
-            self.gui.AddMsg("Deleted folder " + self.modConfigPath)
-            shutil.rmtree(self.modConfigPath)
-      else:
+      if DEBUGGING:
          if path.isdir("./mod_config"):
             self.gui.AddMsg("Deleted folder ./mod_config")
             shutil.rmtree("./mod_config")
+      else:
+         if self.modConfigPath != None and path.isdir(self.modConfigPath):
+            self.gui.AddMsg("Deleted folder " + self.modConfigPath)
+            shutil.rmtree(self.modConfigPath)
+         
       self.initDatabase()
 
    def DeleteModSettings(self, _modID):
@@ -494,8 +511,7 @@ else:
 defaultDB = Database(DBNAME)
 
 #if reads to a local file and writes results in directory of exe
-global DEBUGGING
-DEBUGGING = True
+DEBUGGING = False
 
 gui = GUI(defaultDB)
 
