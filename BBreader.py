@@ -454,7 +454,7 @@ class GUI:
          text = self.PendingOutput.pop(0)
          result+=text
          if(DEBUGGING):
-            print(result)
+            print(text)
       self.ResultEntry.insert(END, result)
       
 
