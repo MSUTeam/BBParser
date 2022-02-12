@@ -93,8 +93,6 @@ class WriteDatabase(CommandOption):
             f.write(self.returnFileHeader())
             rows = cur.fetchall()
             for row in rows:
-               print(row)
-
                argmap = {}
                for idx, arg in enumerate(self.TemplateArguments):
                   argmap[arg] = row[idx]
@@ -254,17 +252,20 @@ class Database:
          parsemanager.write_files(self.modConfigPath)
 
       for msg in parsemanager.TotalWritten:
-         self.gui.AddMsg(msg + "\n")
-      self.gui.AddMsg("Completed!\n")
+         self.gui.AddMsg(msg)
+      self.gui.AddMsg("Completed!")
       self.gui.UpdateOutput()
 
    def WriteTestLog(self):
       with open("log.html", "w") as log:
          log.write("""<div class="text">PARSEME;String;Vanilla;this.logInfo("Hello, World!");</div>""")
-         log.write("""<div class="text">PARSEME;String;MSU;this.MSU.SettingsManager.updateSetting("MSU", "logall", true);</div>""")
-         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
 
-         log.write("""<div class="text">PARSEME;Keybind;MSU;character_toggleCharacterMenu_1;c+ctrl</div>""")
+
+         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
+         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;false;</div>""")
+         log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
+         for x in range(100):
+            log.write("<div class='text'>PARSEME;Keybind;MSU;{idx};c+ctrl</div>".format(idx = x))
 
    def RemoveDB(self, _fileName):
       _path = self.dbFolder + _fileName + ".db"
@@ -281,8 +282,17 @@ class Database:
 
    def DeleteAllSettings(self):
       os.remove(self.databaseName)
-      if self.modConfigPath != None and path.isdir(self.modConfigPath):
-         shutil.rmtree(self.modConfigPath)
+      if path.isdir(self.dbFolder):
+         self.gui.AddMsg("Deleted folder " + self.dbFolder)
+         shutil.rmtree(self.dbFolder)
+      if DEBUGGING == False:
+         if self.modConfigPath != None and path.isdir(self.modConfigPath):
+            self.gui.AddMsg("Deleted folder " + self.modConfigPath)
+            shutil.rmtree(self.modConfigPath)
+      else:
+         if path.isdir("./mod_config"):
+            self.gui.AddMsg("Deleted folder ./mod_config")
+            shutil.rmtree("./mod_config")
       self.initDatabase()
 
    def DeleteModSettings(self, _modID):
@@ -349,20 +359,24 @@ class GUI:
    def UpdateGameDirectory(self):
       directory = filedialog.askdirectory()
       if directory == None or len(directory.split("/")) < 2 or directory.split("/")[-1] != "data":
-        self.UpdateStringVarText(self.dataPathVar, "Bad Directory!")
+         self.AddMsg("Bad Path! " + str(directory))
       else:
          self.database.UpdateGameDirectory(directory+"/mod_config")
          self.UpdateStringVarText(self.dataPathVar, self.database.modConfigPath)
+         self.AddMsg("Directory selected successfully! " + str(directory))
       self.UpdateButtons()
+      self.UpdateOutput()
          
    def UpdateLogDirectory(self):
       directory = filedialog.askopenfile(mode ='r', filetypes =[('log.html', 'log.html')])
       if directory == None or directory.name.split("/")[-1] != "log.html":
-         self.UpdateStringVarText(self.logPathVar, "Bad Directory!")
+         self.AddMsg("Bad Path! " + str(directory))
       else:
          self.database.UpdateLogDirectory(directory.name)
          self.UpdateStringVarText(self.logPathVar, self.database.logPath)
+         self.AddMsg("log file selected successfully! " + directory.name)
       self.UpdateButtons()
+      self.UpdateOutput()
 
    def UpdateStringVarText(self, _stringvar, _text):
       _stringvar.set(_text)
@@ -386,6 +400,7 @@ class GUI:
 
    def RunParse(self):
       self.ClearOutput()
+      self.AddMsg("Trying to parse file")
       self.database.RunParse()
 
    def DeleteAllSettings(self):
@@ -395,13 +410,14 @@ class GUI:
          self.ResetStringVars()
          self.UpdateButtons()
          self.database.DeleteAllSettings()
+      self.UpdateOutput()
 
    def DeleteSingleSetting(self):
       directory = filedialog.askopenfile(filetypes =[('nut files', '*.nut')])
       if(directory != None):
          path = directory.name
          directory = None
-         self.AddMsg("Deleting setting " + path + "\n")
+         self.AddMsg("Deleting setting " + path)
          os.remove(path)
          modName = path.split("/")[-2]
          filename = path.split("/")[-2]
@@ -412,32 +428,35 @@ class GUI:
    def DeleteSingleMod(self):
       directory = filedialog.askdirectory()
       if directory == None or len(directory.split("/")) < 2 or directory.split("/")[-2] != "mod_config":
-         self.AddMsg("Bad Path! " + directory + "\n")
+         self.AddMsg("Bad Path! " + directory)
       else:
-         self.AddMsg("Deleting folder: " + directory  + "\n")
+         self.AddMsg("Deleting folder: " + directory)
          try: 
             shutil.rmtree(directory)
          except:
-            self.AddMsg("Could not delete folder: " + directory  + "\n")
+            self.AddMsg("Could not delete folder: " + directory)
          else:
-            self.AddMsg("Deleted folder: " + directory  + "\n")
+            self.AddMsg("Deleted folder: " + directory)
 
          self.database.RemoveDB(directory.split("/")[-1])
       self.UpdateOutput()
       
 
-   def AddMsg(self, _text):
-      if type(_text) == list:
-         self.PendingOutput += _text
-      else:
-         self.PendingOutput.append(_text)
+   def AddMsg(self, _text, _newline = True):
+      if _newline:
+         _text += "\n"
+      
+      self.PendingOutput.append(_text)
 
    def UpdateOutput(self):
+      result = ""
       while len(self.PendingOutput) > 0:
          text = self.PendingOutput.pop(0)
-         self.ResultEntry.insert(END, text)
+         result+=text
          if(DEBUGGING):
-            print(text)
+            print(result)
+      self.ResultEntry.insert(END, result)
+      
 
 
    def ClearOutput(self):
