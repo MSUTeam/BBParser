@@ -8,3 +8,5 @@ To turn it into an exe, add pyinstaller to your Anaconda instance then navigate 
 pyinstaller --onefile BBReader.py
 
 To enable debug and write to local files, write DEBUG and execute input. To disable, write !DEBUG.
+
+To write a PARSEME command that appends to the file instead of overwriting the content, add `:APPEND` after the command ID. Example: `PARSEME;mod_plan_perks;PerkBuild:APPEND;[payload];`. ":APPEND" will be removed from the ID.
