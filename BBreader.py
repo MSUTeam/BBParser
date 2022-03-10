@@ -5,11 +5,11 @@ import sys
 from tkinter import filedialog
 from tkinter import *
 from tkinter.messagebox import askyesno
-from bs4 import BeautifulSoup
 from os import path
 from os import walk
 from string import Template
 from contextlib import contextmanager
+import re
 
 
 
@@ -33,7 +33,7 @@ root = Tk()
 class CommandOption:
    def getCommandClass(_database, _commandType, _modName):
       if _commandType == "ModSetting":
-         return WriteModSetting(_commandType, _modName, _database, """this.MSU.SettingsManager.updateSetting("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
+         return WriteModSetting(_commandType, _modName, _database, """this.MSU.Systems.ModSettings.setSettingFromPersistence("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
       elif _commandType == "Keybind":
          return WriteKeybind(_commandType, _modName, _database, """this.MSU.CustomKeybinds.set("$settingID", "$value");\n""", ["settingID", "value"])
       else:
@@ -48,6 +48,7 @@ class CommandOption:
       self.modID = _modID
       self.database = _database 
       self.dbTableKey = self.database.dbFolder + self.scrub(self.modID) + ".db"
+      printDebug("Created new CommandOption obj: " + str(self))
 
    def initDatabase(self):
       with db_ops(self.dbTableKey) as cur:
@@ -61,7 +62,7 @@ class CommandOption:
 
 
    def scrub(self, table_name):
-    return ''.join( chr for chr in table_name if chr.isalnum() )
+      return ''.join( chr for chr in table_name if chr.isalnum() )
 
    def handleAction(self, action):
       pass
@@ -117,7 +118,6 @@ class WriteDatabase(CommandOption):
    def writeToFile(self, _file, _fileObj):
       #only write to file if it had updates in last parsing loop
       if(self.changedSinceLastUpdate == False):
-         print(self.id + " returned ")
          return
 
       with db_ops(self.dbTableKey) as cur:
@@ -137,6 +137,7 @@ class WriteDatabase(CommandOption):
       self.changedSinceLastUpdate = False
 
 
+# Ingame mod settings menu
 class WriteModSetting(WriteDatabase):
    def handleAction(self, action):
       super().handleAction(action)
@@ -152,6 +153,8 @@ class WriteModSetting(WriteDatabase):
          else:
             cur.execute("UPDATE " + self.id + " SET value = :value WHERE modID = :modID and settingID = :settingID", {"value" : value, "modID" : modID, "settingID" : settingID })
 
+
+# Custom keybind handler settings menu option
 class WriteKeybind(WriteDatabase):
    def scrub(self, table_name):
       return ''.join( chr for chr in table_name if (chr.isalnum() or chr == "+" or chr == "_"))
@@ -170,8 +173,6 @@ class WriteKeybind(WriteDatabase):
             cur.execute("UPDATE " + self.id + " SET value = :value WHERE settingID = :settingID", {"value" : value, "settingID" : settingID })
 
 
-
-
 class Mod:
    def __init__(self, _modID, _path, _dbPath):
       self.ModID = _modID
@@ -184,8 +185,7 @@ class Mod:
       result = 'Mod(ModID: {modid} | ConfigPath: {configpath} | DBPath: {dbpath})'.format(modid = self.ModID, configpath = self.ConfigPath, dbpath = self.DBPath)
       return result
 
-#manages all the CommandOptions to categorise them into Mods, parses the commands and outputs to the files
-# Handles the Database connection
+
 
 ##reintroduce parse object? does all the parsing stuff, advantage of being easily removed and reinitialised between sessions
 # class ParseObject:
@@ -198,8 +198,14 @@ class Mod:
          # self.StopLoop = False
          # self.LastUpdateTime = None
          # self.LastBootTime = None
+
+
 class LoopDone(Exception):
    pass
+
+
+#manages all the CommandOptions to categorise them into Mods, parses the commands and outputs to the files
+# Handles the Database connection
 
 class Database:
    def __init__(self, _databaseName):
@@ -275,15 +281,15 @@ class Database:
       global DEBUGGING
       if _input.rstrip() == "DEBUG":
          DEBUGGING = True
-         self.gui.AddMsg("DEBUGGING ENABLED")
+         self.gui.addMsg("DEBUGGING ENABLED")
          self.setDebug(True)
-         self.gui.UpdateOutput()
+         self.gui.updateOutput()
          return
       elif _input.rstrip() == "!DEBUG":
          DEBUGGING = False
          self.setDebug(False)
-         self.gui.AddMsg("DEBUGGING DISABLED")
-         self.gui.UpdateOutput()
+         self.gui.addMsg("DEBUGGING DISABLED")
+         self.gui.updateOutput()
          return
       else:
          self.writeInputLog(_input)
@@ -300,19 +306,21 @@ class Database:
 
          if(self.LastUpdateTime != os.path.getmtime(self.logPath)):
             self.LastUpdateTime = os.path.getmtime(self.logPath)
+            
             if self.compareBootTime():
                self.PreviousReadIndex = 0
+           
             self.parse(self.logPath)
             self.writeFiles(self.modConfigPath)
             for msg in self.TotalWritten:
-               self.gui.AddMsg(msg)
-            self.gui.UpdateOutput()
+               self.gui.addMsg(msg)
+            self.gui.updateOutput()
             self.TotalWritten = []
 
       except LoopDone as e:
          print(e)
-         self.gui.AddMsg("Completed!")
-         self.gui.UpdateOutput()
+         self.gui.addMsg("Completed!")
+         self.gui.updateOutput()
          self.clearLoopVars()
          if DEBUGGING:
             os.remove("./log.html")
@@ -321,8 +329,8 @@ class Database:
          print("broke? " +  str(e))
 
       except IOError as e:
-         self.gui.AddMsg("Could not open log.html!")
-         self.gui.UpdateOutput()
+         self.gui.addMsg("Could not open log.html!")
+         self.gui.updateOutput()
          if DEBUGGING:
             os.remove("./log.html")  
 
@@ -331,12 +339,14 @@ class Database:
 
    def getBootTime(self):
       # gets time info of first entry ín the log
-      with open(self.logPath) as fp:
-         return [int(num) for num in BeautifulSoup(fp, "html.parser").find(class_ = "time").contents[0].split(":")] #yes
+      with open(self.logPath) as fp:  
+         time = re.search('(?:<div class="time">)(\d\d:\d\d:\d\d)(?:<\/div>)', fp.readline()).group(1)
+         return [int(num) for num in time.split(":")]
 
 
    def setBootTime(self):
       self.LastBootTime = self.getBootTime()
+   
 
    def compareBootTime(self):
       # See if the game has been restarted and we need to index from 0 again
@@ -349,6 +359,7 @@ class Database:
          if num1 > num2:
             self.setBootTime()
             return True
+
       return False
 
 
@@ -382,16 +393,10 @@ class Database:
       return ''.join( chr for chr in table_name if chr.isalnum() )
 
    def getCommandsFromLog(self, _path):
-      results = []
       with open(_path) as fp: 
-         soup = BeautifulSoup(fp, "html.parser")
-         logInfoArray = soup.findAll(class_ = "text")[self.PreviousReadIndex:]
-         for entry in logInfoArray:
-            self.PreviousReadIndex += 1
-            contents = entry.contents[0].split(";")
-            if contents[0] == "PARSEME":
-               results.append(contents[1:])
-      return results
+         result = list(map(lambda entry: entry.split(";")[:-1], re.findall('(?:<div class="text">PARSEME;)(.+)(?:<\/div>)', fp.readline())))[self.PreviousReadIndex:]
+         self.PreviousReadIndex += len(result)
+         return result
 
    def writeFiles(self, _path):
       if path.isdir(_path) == False:
@@ -420,7 +425,7 @@ class Database:
       elif(len(result) == 2):
          self.deleteOptionFromMod(result[0].rstrip(), result[1].lstrip())
 
-      self.gui.UpdateOutput()
+      self.gui.updateOutput()
 
    def deleteMod(self, _modID):
       mod = self.Mods[_modID]
@@ -428,9 +433,9 @@ class Database:
       db_directory = mod.DBPath
       try: 
          shutil.rmtree(directory)
-         self.gui.AddMsg("Deleted folder: " + directory)
+         self.gui.addMsg("Deleted folder: " + directory)
       except Exception as e:
-         self.gui.AddMsg("Could not delete folder " + directory + " : " + e)
+         self.gui.addMsg("Could not delete folder " + directory + " : " + e)
         
       self.removeDB(db_directory)
       del self.Mods[_modID]
@@ -441,9 +446,9 @@ class Database:
       db_directory = mod.DBPath
       try: 
          os.remove(directory)
-         self.gui.AddMsg("Deleted folder: " + directory)
+         self.gui.addMsg("Deleted folder: " + directory)
       except Exception as e:
-         self.gui.AddMsg("Could not delete folder " + directory + " : " + e)
+         self.gui.addMsg("Could not delete folder " + directory + " : " + e)
         
       self.removeFromDB(db_directory, _settingID)
       del mod.Options[_settingID]
@@ -453,9 +458,9 @@ class Database:
       if path.isfile(_path):
          try:
             os.remove(_path)
-            self.gui.AddMsg("Deleted database " + _path)
+            self.gui.addMsg("Deleted database " + _path)
          except:
-            self.gui.AddMsg("Could not delete database " + _path)
+            self.gui.addMsg("Could not delete database " + _path)
          
 
    def removeFromDB(self, _path, _settingID):
@@ -463,20 +468,20 @@ class Database:
          try:
             with db_ops(_path) as cur:
                cur.execute("DROP TABLE IF EXISTS " + _settingID)
-            self.gui.AddMsg("Deleted data " + _settingID + " from database " + _path)
+            self.gui.addMsg("Deleted data " + _settingID + " from database " + _path)
          except:
-            self.gui.AddMsg("Could not delete data " + _settingID + " from database " + _path)
+            self.gui.addMsg("Could not delete data " + _settingID + " from database " + _path)
          
 
    def deleteAllSettings(self):
       os.remove(self.databaseName)
 
       if path.isdir(self.dbFolder):
-         self.gui.AddMsg("Deleted folder " + self.dbFolder)
+         self.gui.addMsg("Deleted folder " + self.dbFolder)
          shutil.rmtree(self.dbFolder)
 
       if self.modConfigPath != None and path.isdir(self.modConfigPath):
-         self.gui.AddMsg("Deleted folder " + self.modConfigPath)
+         self.gui.addMsg("Deleted folder " + self.modConfigPath)
          shutil.rmtree(self.modConfigPath)
          
       self.initDatabase()
@@ -512,13 +517,11 @@ class Database:
          self.dbFolder = "./mod_db"
          self.initDatabase()
 
-      self.gui.UpdateButtons()
-      self.gui.UpdateOutput()
-      self.gui.UpdateStringVarText(gui.logPathVar, self.logPath)
-      self.gui.UpdateStringVarText(gui.dataPathVar, self.modConfigPath)
+      self.gui.updateButtons()
+      self.gui.updateOutput()
+      self.gui.updateStringVarText(gui.logPathVar, self.logPath)
+      self.gui.updateStringVarText(gui.dataPathVar, self.modConfigPath)
       
-
-
 
 # Handles the GUI element
 class GUI:
@@ -526,11 +529,15 @@ class GUI:
       self.database = _database
       self.database.gui = self
       self.PendingOutput = []
+      self.bannerImg = PhotoImage(file="assets/banner.gif")  
+      self.bannerCanvas = Canvas(root, width = 792, height =82)
+      self.bannerCanvas.create_image(0, 0, anchor="nw", image=self.bannerImg)
+      self.bannerCanvas.grid(row=0, column=0, columnspan = 2)
 
-      self.titleLabel = Label(root, text="Battle Brothers Reader")
-      self.titleLabel.grid(row=0, column=0)
+      self.titleLabel = Label(root, text="BBParser")
+      self.titleLabel.grid(row=1, column=0)
       self.dbNameLabel = Label(root, text="Database: " + self.database.databaseName)
-      self.dbNameLabel.grid(row=0, column=1)
+      self.dbNameLabel.grid(row=1, column=1)
 
       self.dataPathVar = StringVar(root, "Browse to your game directory")
       self.dataPathLabel = Label(root, textvariable = self.dataPathVar)
@@ -551,7 +558,7 @@ class GUI:
 
       self.deleteSingleSettingLabel = Label(root, text = "delete all settings for a select mod folder.")
       self.deleteSingleSettingLabel.grid(row=6, column=0)
-      self.deleteSingleModButton = Button(root, text="delete mod settings", command=self.DeleteSingleMod, state="disabled")
+      self.deleteSingleModButton = Button(root, text="delete mod settings", command=self.deleteSingleMod, state="disabled")
       self.deleteSingleModButton.grid(row=6, column=1)
 
       self.deleteAllLabel = Label(root, text = "delete all settings to get a clean install")
@@ -559,94 +566,88 @@ class GUI:
       self.deleteAllButton = Button(root, text="delete all settings", command=self.deleteAllSettings, state="active")
       self.deleteAllButton.grid(row=7, column=1)
 
-      self.runFileButton = Button(root, text = "Update settings", command=self.RunFileParse, state="disabled")
+      self.runFileButton = Button(root, text = "Update settings", command=self.runFileParse, state="disabled")
       self.runFileButton.grid(row=8, column=0)
 
-      self.runInputButton = Button(root, text="Execute current input", command=self.RunInputParse, state="active")
+      self.runInputButton = Button(root, text="Execute current input", command=self.runInputParse, state="active")
       self.runInputButton.grid(row=8, column=1)
 
-      self.runInputButton = Button(root, text="Clear input", command=self.ClearOutput, state="active")
+      self.runInputButton = Button(root, text="Clear input", command=self.clearOutput, state="active")
       self.runInputButton.grid(row=9, column=1)
 
 
       self.ResultEntry = Text(root)
       self.ResultEntry.grid(row=9, column = 0)
-      self.UpdateStringVarText(self.dataPathVar, self.database.modConfigPath if self.database.modConfigPath != None else "Browse to your game directory")
-      self.UpdateStringVarText(self.logPathVar, self.database.logPath if self.database.logPath != None else "Select your log.html file (documents/Battle Brothers/log.html)")
-      self.UpdateButtons()
-
-
-      
+      self.updateStringVarText(self.dataPathVar, self.database.modConfigPath if self.database.modConfigPath != None else "Browse to your game directory")
+      self.updateStringVarText(self.logPathVar, self.database.logPath if self.database.logPath != None else "Select your log.html file (documents/Battle Brothers/log.html)")
+      self.updateButtons()
 
    def updateGameDirectory(self):
       directory = filedialog.askdirectory()
       if directory == None or len(directory.split("/")) < 2 or (DEBUGGING == False and directory.split("/")[-1] != "data"):
-         self.AddMsg("Bad Path! " + str(directory))
+         self.addMsg("Bad Path! " + str(directory))
       else:
          self.database.updateGameDirectory(directory+"/mod_config")
-         self.UpdateStringVarText(self.dataPathVar, self.database.modConfigPath)
-         self.AddMsg("Directory selected successfully! " + str(directory))
-      self.UpdateButtons()
-      self.UpdateOutput()
+         self.updateStringVarText(self.dataPathVar, self.database.modConfigPath)
+         self.addMsg("Directory selected successfully! " + str(directory))
+      self.updateButtons()
+      self.updateOutput()
          
    def updateLogDirectory(self):
       directory = filedialog.askopenfile(mode ='r', filetypes =[('log.html', 'log.html')])
       if directory == None or directory.name.split("/")[-1] != "log.html":
-         self.AddMsg("Bad Path! " + str(directory))
+         self.addMsg("Bad Path! " + str(directory))
       else:
          self.database.updateLogDirectory(directory.name)
-         self.UpdateStringVarText(self.logPathVar, self.database.logPath)
-         self.AddMsg("log file selected successfully! " + directory.name)
-      self.UpdateButtons()
-      self.UpdateOutput()
+         self.updateStringVarText(self.logPathVar, self.database.logPath)
+         self.addMsg("log file selected successfully! " + directory.name)
+      self.updateButtons()
+      self.updateOutput()
 
-   def UpdateStringVarText(self, _stringvar, _text):
+   def updateStringVarText(self, _stringvar, _text):
       _stringvar.set(_text)
 
-
-   def UpdateButtonStatus(self, _button, _bool):
+   def updateButtonStatus(self, _button, _bool):
       if _bool:
          _button.config(state = "active")
       else:
          _button.config(state = "disabled")
 
-   def UpdateButtons(self):
-      self.UpdateButtonStatus(self.runFileButton, self.database.isReadyToRun())
-      self.UpdateButtonStatus(self.deleteSingleModButton, self.database.modConfigPath != None)
-      # self.UpdateButtonStatus(self.deleteSingleSettingButton, self.database.modConfigPath != None)
+   def updateButtons(self):
+      self.updateButtonStatus(self.runFileButton, self.database.isReadyToRun())
+      self.updateButtonStatus(self.deleteSingleModButton, self.database.modConfigPath != None)
+      # self.updateButtonStatus(self.deleteSingleSettingButton, self.database.modConfigPath != None)
 
-   def ResetStringVars(self):
-      self.UpdateStringVarText(self.dataPathVar, "Browse to your game directory")
-      self.UpdateStringVarText(self.logPathVar, "Select your log.html file (documents/Battle Brothers/log.html)")
+   def resetStringVars(self):
+      self.updateStringVarText(self.dataPathVar, "Browse to your game directory")
+      self.updateStringVarText(self.logPathVar, "Select your log.html file (documents/Battle Brothers/log.html)")
 
-
-   def RunFileParse(self):
-      self.ClearOutput()
-      self.AddMsg("Trying to parse file")
-      self.runFileButton.configure(text = "Stop Updating", command= self.StopParse)
+   def runFileParse(self):
+      self.clearOutput()
+      self.addMsg("Trying to parse file")
+      self.runFileButton.configure(text = "Stop Updating", command= self.stopParse)
       self.database.clearLoopVars()
       self.database.parseLogInLoop()
 
-   def StopParse(self):
-      self.runFileButton.configure( text = "Update settings", command=self.RunFileParse)
+   def stopParse(self):
+      self.runFileButton.configure( text = "Update settings", command=self.runFileParse)
       self.database.StopLoop = True
 
-   def RunInputParse(self):
-      self.AddMsg("Trying to parse input")
+   def runInputParse(self):
+      self.addMsg("Trying to parse input")
       text = self.ResultEntry.get("1.0",END)
       self.database.parseLocalInput(text)
 
    def deleteAllSettings(self):
       answer = askyesno("delete all settings", "Are you sure? This will delete all files in your mod_config and the database.")
       if answer:
-         self.ClearOutput()
-         self.ResetStringVars()
-         self.UpdateButtons()
+         self.clearOutput()
+         self.resetStringVars()
+         self.updateButtons()
          self.database.deleteAllSettings()
-      self.UpdateOutput()
+      self.updateOutput()
 
-
-   def DeleteSingleMod(self):
+   def deleteSingleMod(self):
       win = Toplevel()
       win.wm_title("delete mod")
 
@@ -658,7 +659,6 @@ class GUI:
          modList.append(mod)
          for option, optionObj in modObj.Options.items():
             modList.append(mod + " : " + optionObj.id)
-
 
       OptionVar = StringVar(win)
       w = OptionMenu(win, OptionVar, None, *modList)
@@ -674,13 +674,13 @@ class GUI:
       b.grid(row=1, column=0)
       
 
-   def AddMsg(self, _text, _newline = True):
+   def addMsg(self, _text, _newline = True):
       if _newline:
          _text += "\n"
       
       self.PendingOutput.append(_text)
 
-   def UpdateOutput(self):
+   def updateOutput(self):
       result = ""
       while len(self.PendingOutput) > 0:
          text = self.PendingOutput.pop(0)
@@ -688,19 +688,14 @@ class GUI:
          printDebug(text)
       self.ResultEntry.insert(END, result)
       
-
-
-   def ClearOutput(self):
+   def clearOutput(self):
       self.ResultEntry.delete('1.0', END)
       self.PendingOutput = []
 
 
-
-
-
-
 global DBNAME
-DEBUGGING = False
+DEBUGGING = False #can be enabled via writing and executing DEBUG, then parses local log and writes to local files
+
 if(len(sys.argv) > 1):
    DBNAME = sys.argv[1]
 else:
@@ -708,7 +703,6 @@ else:
 
 defaultDB = Database(DBNAME)
 
-#if reads to a local file and writes results in directory of exe
 gui = GUI(defaultDB)
 
 
