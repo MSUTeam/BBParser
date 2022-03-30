@@ -9,6 +9,7 @@ from os import path
 from os import walk
 from string import Template
 from contextlib import contextmanager
+from dataclasses import dataclass
 import re
 
 
@@ -25,17 +26,29 @@ def printDebug(_text):
    if DEBUGGING:
       print(_text)
 
+def resource_path(relative_path):
+   if hasattr(sys, '_MEIPASS'):
+      return os.path.join(sys._MEIPASS, relative_path)
+   return os.path.join(os.path.abspath("."), relative_path) 
+
 root = Tk()
 
 
+# The result of a command string extracted from the log or other
+@dataclass
+class CommandObject:
+   commandType : str
+   modID : str
+   value : str
+   extravalue : None
 
-# Base Class, some type of command that treats the passed data in a specific way
+# Base Class for a command option, some type of command that treats the passed data in a specific way
 class CommandOption:
    def getCommandClass(_database, _commandType, _modName):
       if _commandType == "ModSetting":
-         return WriteModSetting(_commandType, _modName, _database, """this.MSU.Systems.ModSettings.setSettingFromPersistence("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
+         return WriteModSetting(_commandType, _modName, _database)
       elif _commandType == "Keybind":
-         return WriteKeybind(_commandType, _modName, _database, """this.MSU.CustomKeybinds.set("$settingID", "$value");\n""", ["settingID", "value"])
+         return WriteKeybind(_commandType, _modName, _database)
       else:
          if (_commandType.find(":APPEND") != -1):
             _commandType = _commandType.split(":APPEND")[0]
@@ -44,43 +57,38 @@ class CommandOption:
             return WriteString(_commandType, _modName, _database)
 
    def __init__(self, _id, _modID, _database):
-      self.id = _id
+      self.commandType = _id
       self.modID = _modID
       self.database = _database 
-      self.dbTableKey = self.database.dbFolder + self.scrub(self.modID) + ".db"
+      self.dbTableKey = self.database.dbFolder + self.modID + ".db"
       printDebug("Created new CommandOption obj: " + str(self))
 
-   def initDatabase(self):
-      with db_ops(self.dbTableKey) as cur:
-         cur.execute("CREATE TABLE IF NOT EXISTS " + self.id + " (test text)")
-
    def returnWriteResult(self, _result):
-      return "\nMod {modID} wrote option {id}: {result}".format(modID = self.modID, id = self.id, result = _result)
+      return "\nMod {modID} wrote option {commandType}: {result}".format(modID = self.modID, commandType = self.commandType, result = _result)
 
    def returnFileHeader(self):
-      return 'this.logInfo("{modID}::{id} is being executed");\n'.format(modID = self.modID, id = self.id)
+      return 'this.logInfo("{modID}::{commandType} is being executed");\n'.format(modID = self.modID, commandType = self.commandType)
 
+   def validateCommand(self, _commandObj):
+      return True
 
-   def scrub(self, table_name):
-      return ''.join( chr for chr in table_name if chr.isalnum() )
-
-   def handleAction(self, action):
+   def handleCommand(self, _commandObj):
       pass
 
    def writeToFile(self, _file, _fileObj):
       pass
 
    def __str__ (self):
-      return '{type}(id: {id} | Mod: {modID} | dbTableKey: {dbTableKey})'.format(type = self.__class__.__name__, id = self.id, modID = self.modID, dbTableKey = self.dbTableKey)
+      return '{type}(commandType: {commandType} | Mod: {modID} | dbTableKey: {dbTableKey})'.format(type = self.__class__.__name__, commandType = self.commandType, modID = self.modID, dbTableKey = self.dbTableKey)
 
 #Simple type that doesn't write to the DB
 class WriteString(CommandOption):
-   def __init__(self, _id, _modID, _database):
-      super().__init__(_id, _modID, _database)
+   def __init__(self, _commandType, _modID, _database):
+      super().__init__(_commandType, _modID, _database)
       self.toPrint = ""
 
-   def handleAction(self, action):
-      self.toPrint = "\n" + action[2]
+   def handleCommand(self, _commandObj):
+      self.toPrint = "\n" + _commandObj.value
 
    def writeToFile(self, _file, _fileObj):
       with open(_file + ".nut", 'a') as f:
@@ -90,20 +98,27 @@ class WriteString(CommandOption):
       self.toPrint = ""
 
 class WriteStringAppend(WriteString):
-   def handleAction(self, action):
-      self.toPrint += "\n" + action[2]
+   def handleCommand(self, _commandObj):
+      self.toPrint += "\n" + _commandObj.value
 
 #Type that writes to DB and prints all rows
 class WriteDatabase(CommandOption):
-   def __init__(self,  _id, _modID, _database, _template, _templateArguments):
-      super().__init__( _id, _modID, _database)
+   def __init__(self,  _commandType, _modID, _database, _template, _templateArguments):
+      super().__init__( _commandType, _modID, _database)
       self.Template = _template 
       self.TemplateArguments = _templateArguments
       self.initDatabase()
       self.changedSinceLastUpdate = True
+      self.toLog = [];
 
-   def handleAction(self, action):
-      self.changedSinceLastUpdate = True
+   def getTemplate(self, _modID, _settingID, _value):
+      argmap = {}
+      argmap["modID"] = _modID
+      argmap["settingID"] = _settingID
+      argmap["value"] = _value
+      temp = Template(self.Template)
+      sub = temp.substitute(argmap)
+      return sub
 
    def initDatabase(self):
       columns = " ("
@@ -113,7 +128,7 @@ class WriteDatabase(CommandOption):
             columns += ", "
       columns += ")"
       with db_ops(self.dbTableKey) as cur:
-         cur.execute("CREATE TABLE IF NOT EXISTS " + self.id + columns)
+         cur.execute("CREATE TABLE IF NOT EXISTS " + self.commandType + columns)
 
    def writeToFile(self, _file, _fileObj):
       #only write to file if it had updates in last parsing loop
@@ -121,56 +136,43 @@ class WriteDatabase(CommandOption):
          return
 
       with db_ops(self.dbTableKey) as cur:
-         cur.execute("SELECT * FROM " + self.id)
+         cur.execute("SELECT * FROM " + self.commandType)
          with open(_file + ".nut", 'w') as f:
             f.write(self.returnFileHeader())
             rows = cur.fetchall()
             for row in rows:
-               argmap = {}
-               for idx, arg in enumerate(self.TemplateArguments):
-                  argmap[arg] = row[idx]
-               temp = Template(self.Template)
-               sub = temp.substitute(argmap)
-               f.write(sub)
-               _fileObj.TotalWritten.append(self.returnWriteResult(sub))
-
+               f.write(self.getTemplate(row[0], row[1], row[2]))
+               
+      for line in self.toLog:
+         _fileObj.TotalWritten.append(self.returnWriteResult(line))
+      self.toLog = []
       self.changedSinceLastUpdate = False
+
+   def handleCommand(self, _commandObj):
+      self.changedSinceLastUpdate = True
+      _commandObj.extravalue = _commandObj.extravalue[0]
+      with db_ops(self.dbTableKey) as cur:
+         cur.execute("SELECT * FROM " + self.commandType + " WHERE settingID = ?", (_commandObj.value,))
+         rows = cur.fetchall()
+         if(len(rows) == 0):
+            cur.execute("INSERT INTO " + self.commandType + " VALUES (?, ?, ?)" , (_commandObj.modID, _commandObj.value, _commandObj.extravalue))
+         else:
+            cur.execute("UPDATE " + self.commandType + " SET value = :value WHERE modID = :modID and settingID = :settingID", {"value" : _commandObj.extravalue, "modID" : _commandObj.modID, "settingID" : _commandObj.value })
+         self.toLog.append(self.getTemplate(_commandObj.modID, _commandObj.value, _commandObj.extravalue))
+
+      
 
 
 # Ingame mod settings menu
 class WriteModSetting(WriteDatabase):
-   def handleAction(self, action):
-      super().handleAction(action)
-      action = [self.scrub(entry) for entry in action]
-      modID = action[1]
-      settingID = action[2]
-      value = action[3]
-      with db_ops(self.dbTableKey) as cur:
-         cur.execute("SELECT * FROM " + self.id + " WHERE settingID = ?", (settingID,))
-         rows = cur.fetchall()
-         if(len(rows) == 0):
-            cur.execute("INSERT INTO " + self.id + " VALUES (?, ?, ?)" , (modID, settingID, value))
-         else:
-            cur.execute("UPDATE " + self.id + " SET value = :value WHERE modID = :modID and settingID = :settingID", {"value" : value, "modID" : modID, "settingID" : settingID })
+   def __init__(self,  _commandType, _modID, _database):
+      super().__init__( _commandType, _modID, _database, """this.MSU.System.ModSettings.setSettingFromPersistence("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
 
 
 # Custom keybind handler settings menu option
 class WriteKeybind(WriteDatabase):
-   def scrub(self, table_name):
-      return ''.join( chr for chr in table_name if (chr.isalnum() or chr == "+" or chr == "_"))
-
-   def handleAction(action):
-      super().handleAction(self, action)
-      action = [self.scrub(entry) for entry in action]
-      settingID = action[2]
-      value = action[3]
-      with db_ops(self.dbTableKey) as cur:
-         cur.execute("SELECT * FROM " + self.id + " WHERE settingID = ?", (settingID,))
-         rows = cur.fetchall()
-         if(len(rows) == 0):
-            cur.execute("INSERT INTO " + self.id + " VALUES (?, ?)" , (settingID, value))
-         else:
-            cur.execute("UPDATE " + self.id + " SET value = :value WHERE settingID = :settingID", {"value" : value, "settingID" : settingID })
+   def __init__(self,  _commandType, _modID, _database):
+      super().__init__( _commandType, _modID, _database, """this.MSU.System.Keybinds.updateFromPersistence("$modID", "$settingID", "$value");\n""", ["modID", "settingID", "value"])
 
 
 class Mod:
@@ -261,8 +263,6 @@ class Database:
                   self.Mods[modname].Options[filename] = CommandOption.getCommandClass(self, filename, modname)
          idx += 1
 
-
-
    def updateGameDirectory(self, _path):
       self.modConfigPath = _path
       with db_ops(self.databaseName) as cur:
@@ -304,11 +304,13 @@ class Database:
          if self.StopLoop == True:
             raise LoopDone
 
-         if(self.LastUpdateTime != os.path.getmtime(self.logPath)):
-            self.LastUpdateTime = os.path.getmtime(self.logPath)
+         currentTimeFromLog = os.path.getmtime(self.logPath)
+
+         if self.LastUpdateTime != currentTimeFromLog:
+            self.LastUpdateTime = currentTimeFromLog
             
-            if self.compareBootTime():
-               self.PreviousReadIndex = 0
+            if self.isNewBoot():
+               self.resetReadIndex()
            
             self.parse(self.logPath)
             self.writeFiles(self.modConfigPath)
@@ -318,7 +320,6 @@ class Database:
             self.TotalWritten = []
 
       except LoopDone as e:
-         print(e)
          self.gui.addMsg("Completed!")
          self.gui.updateOutput()
          self.clearLoopVars()
@@ -326,7 +327,7 @@ class Database:
             os.remove("./log.html")
 
       except Exception as e:
-         print("broke? " +  str(e))
+         print("BBParser encountered an error: " +  str(e))
 
       except IOError as e:
          self.gui.addMsg("Could not open log.html!")
@@ -348,7 +349,7 @@ class Database:
       self.LastBootTime = self.getBootTime()
    
 
-   def compareBootTime(self):
+   def isNewBoot(self):
       # See if the game has been restarted and we need to index from 0 again
       if self.LastBootTime == None:
          self.setBootTime()
@@ -362,13 +363,11 @@ class Database:
 
       return False
 
-
-
    def clearLoopVars(self):
       self.TotalWritten = []
       self.LastBootTime = None
       self.LastUpdateTime = None
-      self.PreviousReadIndex = 0
+      self.resetReadIndex()
       self.StopLoop = False
       global DEBUGGING
       if DEBUGGING:
@@ -377,25 +376,42 @@ class Database:
    def parse(self, _path):
       commands = self.getCommandsFromLog(_path)
       for command in commands:
-         commandType = command[0]
-         modID = command[1]
-         if modID not in self.Mods:
-            self.Mods[modID] = Mod(modID, self.modConfigPath+"/"+modID, self.dbFolder+"/"+modID+".db")
-
+         commandObj = self.getCommandObj(command)
+         if commandObj == False:
+            continue
+         self.increaseReadIndex()
+         commandType = commandObj.commandType
+         modID = commandObj.modID
+         if commandObj.modID not in self.Mods:
+            self.Mods[modID] = Mod(modID, self.modConfigPath + "/" + modID, self.dbFolder + "/" + modID + ".db")
          modOptions = self.Mods[modID].Options
          if (commandType in modOptions) == False or modOptions[commandType] == None:
             modOptions[commandType] = CommandOption.getCommandClass(self, commandType, modID)
+         modOptions[commandType].handleCommand(commandObj)
 
-         modOptions[commandType].handleAction(command)
 
+   def getCommandObj(self, _command):
+      _command = [self.scrub(entry) for entry in _command]
+      extravalue = None
+      if(len(_command)) < 3:
+         print("Command " + str(_command) + " is not valid!")
+         return False
+      if len(_command) > 3:
+         extravalue = _command[3:]
+      commandObj = CommandObject(_command[0], _command[1], _command[2], extravalue)
+      print(commandObj)
+      return commandObj
 
-   def scrub(self, table_name):
-      return ''.join( chr for chr in table_name if chr.isalnum() )
+   def increaseReadIndex(self, _value = 1):
+      self.PreviousReadIndex += _value
+
+   def resetReadIndex(self):
+      self.PreviousReadIndex = 0
 
    def getCommandsFromLog(self, _path):
       with open(_path) as fp: 
-         result = list(map(lambda entry: entry.split(";")[:-1], re.findall('(?:<div class="text">PARSEME;)(.+)(?:<\/div>)', fp.readline())))[self.PreviousReadIndex:]
-         self.PreviousReadIndex += len(result)
+         regexResult = re.findall('(?:<div class="text">BBPARSER;)(.+?)(?=<\/div>)', fp.readline())
+         result = list(map(lambda entry: entry.split(";"), regexResult))[self.PreviousReadIndex:]
          return result
 
    def writeFiles(self, _path):
@@ -413,7 +429,7 @@ class Database:
    def writeInputLog(self, _input):
       with open("local_log.html", "w") as log:
          for line in _input.split(";"):
-            log.write("""<div class="text">PARSEME;Global;MSU;""" + line.rstrip() + """</div>""")
+            log.write("""<div class="text">BBPARSER;Global;MSU;""" + line.rstrip() + """</div>""")
 
    def delete(self, _arg):
       if(_arg == ""):
@@ -435,14 +451,14 @@ class Database:
          shutil.rmtree(directory)
          self.gui.addMsg("Deleted folder: " + directory)
       except Exception as e:
-         self.gui.addMsg("Could not delete folder " + directory + " : " + e)
+         self.gui.addMsg("Could not delete folder " + str(directory) + " : " + str(e))
         
       self.removeDB(db_directory)
       del self.Mods[_modID]
 
-   def deleteOptionFromMod(self, _modID, _settingID):
+   def deleteOptionFromMod(self, _modID, _commandType):
       mod = self.Mods[_modID]
-      directory = mod.ConfigPath + "/" + _settingID +".nut"
+      directory = mod.ConfigPath + "/" + _commandType +".nut"
       db_directory = mod.DBPath
       try: 
          os.remove(directory)
@@ -450,8 +466,8 @@ class Database:
       except Exception as e:
          self.gui.addMsg("Could not delete folder " + directory + " : " + e)
         
-      self.removeFromDB(db_directory, _settingID)
-      del mod.Options[_settingID]
+      self.removeFromDB(db_directory, _commandType)
+      del mod.Options[_commandType]
 
 
    def removeDB(self, _path):
@@ -463,14 +479,14 @@ class Database:
             self.gui.addMsg("Could not delete database " + _path)
          
 
-   def removeFromDB(self, _path, _settingID):
+   def removeFromDB(self, _path, _commandType):
       if path.isfile(_path):
          try:
             with db_ops(_path) as cur:
-               cur.execute("DROP TABLE IF EXISTS " + _settingID)
-            self.gui.addMsg("Deleted data " + _settingID + " from database " + _path)
+               cur.execute("DROP TABLE IF EXISTS " + _commandType)
+            self.gui.addMsg("Deleted data " + _commandType + " from database " + _path)
          except:
-            self.gui.addMsg("Could not delete data " + _settingID + " from database " + _path)
+            self.gui.addMsg("Could not delete data " + _commandType + " from database " + _path)
          
 
    def deleteAllSettings(self):
@@ -486,18 +502,21 @@ class Database:
          
       self.initDatabase()
 
+   def scrub(self, _string):
+      return ''.join( chr for chr in _string if (chr.isalnum() or chr == "+" or chr == "_" or chr == "-" or chr == "/"))
+
    def writeTestLog(self):
       with open("log.html", "w") as log:
          log.write("""<div class="time">00:00:00</div>""")
-         log.write("""<div class="text">PARSEME;String;Vanilla;this.logInfo("Hello, World!");</div>""")
+         log.write("""<div class="text">BBPARSER;String;Vanilla;this.logInfo("Hello, World!");</div>""")
 
 
-         # log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
-         # log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;false;</div>""")
-         # log.write("""<div class="text">PARSEME;ModSetting;MSU;logall;true;</div>""")
-         # log.write("""<div class="text">PARSEME;PerkBuild;PlanPerks;this.World.Perks.importPerkBuilds("124$perk.hold_out#1+perk.rotation#1+perk.bags_and_belts#1+perk.mastery.polearm#1+~");</div>""")
+         # log.write("""<div class="text">BBPARSER;ModSetting;MSU;logall;true;</div>""")
+         # log.write("""<div class="text">BBPARSER;ModSetting;MSU;logall;false;</div>""")
+         # log.write("""<div class="text">BBPARSER;ModSetting;MSU;logall;true;</div>""")
+         # log.write("""<div class="text">BBPARSER;PerkBuild;PlanPerks;this.World.Perks.importPerkBuilds("124$perk.hold_out#1+perk.rotation#1+perk.bags_and_belts#1+perk.mastery.polearm#1+~");</div>""")
          # for x in range(100):
-         #    log.write("<div class='text'>PARSEME;Keybind;MSU;{idx};c+ctrl</div>".format(idx = x))
+         #    log.write("<div class='text'>BBPARSER;Keybind;MSU;{idx};c+ctrl</div>".format(idx = x))
 
    def setDebug(self, _val):
       if(_val):
@@ -521,7 +540,8 @@ class Database:
       self.gui.updateOutput()
       self.gui.updateStringVarText(gui.logPathVar, self.logPath)
       self.gui.updateStringVarText(gui.dataPathVar, self.modConfigPath)
-      
+     
+
 
 # Handles the GUI element
 class GUI:
@@ -529,7 +549,7 @@ class GUI:
       self.database = _database
       self.database.gui = self
       self.PendingOutput = []
-      self.bannerImg = PhotoImage(file="assets/banner.gif")  
+      self.bannerImg = PhotoImage(file=resource_path("assets/banner.gif"))  
       self.bannerCanvas = Canvas(root, width = 792, height =82)
       self.bannerCanvas.create_image(0, 0, anchor="nw", image=self.bannerImg)
       self.bannerCanvas.grid(row=0, column=0, columnspan = 2)
@@ -551,11 +571,6 @@ class GUI:
       self.logPathButton =  Button(text="Browse", command=self.updateLogDirectory)
       self.logPathButton.grid(row=4, column=1)
 
-      # self.deleteSingleSettingLabel = Label(root, text = "delete a setting file and any related data.")
-      # self.deleteSingleSettingLabel.grid(row=5, column=0)
-      # self.deleteSingleSettingButton = Button(root, text="delete specific setting", command=self.DeleteSingleSetting, state="disabled")
-      # self.deleteSingleSettingButton.grid(row=5, column=1)
-
       self.deleteSingleSettingLabel = Label(root, text = "delete all settings for a select mod folder.")
       self.deleteSingleSettingLabel.grid(row=6, column=0)
       self.deleteSingleModButton = Button(root, text="delete mod settings", command=self.deleteSingleMod, state="disabled")
@@ -566,14 +581,14 @@ class GUI:
       self.deleteAllButton = Button(root, text="delete all settings", command=self.deleteAllSettings, state="active")
       self.deleteAllButton.grid(row=7, column=1)
 
-      self.runFileButton = Button(root, text = "Update settings", command=self.runFileParse, state="disabled")
-      self.runFileButton.grid(row=8, column=0)
+      self.runParseButton = Button(root, text = "Update settings", command=self.runFileParse, state="disabled")
+      self.runParseButton.grid(row=8, column=0)
 
       self.runInputButton = Button(root, text="Execute current input", command=self.runInputParse, state="active")
       self.runInputButton.grid(row=8, column=1)
 
-      self.runInputButton = Button(root, text="Clear input", command=self.clearOutput, state="active")
-      self.runInputButton.grid(row=9, column=1)
+      self.clearInputButton = Button(root, text="Clear input", command=self.clearOutput, state="active")
+      self.clearInputButton.grid(row=9, column=1)
 
 
       self.ResultEntry = Text(root)
@@ -614,7 +629,7 @@ class GUI:
          _button.config(state = "disabled")
 
    def updateButtons(self):
-      self.updateButtonStatus(self.runFileButton, self.database.isReadyToRun())
+      self.updateButtonStatus(self.runParseButton, self.database.isReadyToRun())
       self.updateButtonStatus(self.deleteSingleModButton, self.database.modConfigPath != None)
       # self.updateButtonStatus(self.deleteSingleSettingButton, self.database.modConfigPath != None)
 
@@ -624,13 +639,13 @@ class GUI:
 
    def runFileParse(self):
       self.clearOutput()
-      self.addMsg("Trying to parse file")
-      self.runFileButton.configure(text = "Stop Updating", command= self.stopParse)
+      self.addMsg("Currently parsing file!")
+      self.runParseButton.configure(text = "Stop Updating", command= self.stopParse)
       self.database.clearLoopVars()
       self.database.parseLogInLoop()
 
    def stopParse(self):
-      self.runFileButton.configure( text = "Update settings", command=self.runFileParse)
+      self.runParseButton.configure( text = "Update settings", command=self.runFileParse)
       self.database.StopLoop = True
 
    def runInputParse(self):
@@ -649,16 +664,16 @@ class GUI:
 
    def deleteSingleMod(self):
       win = Toplevel()
-      win.wm_title("delete mod")
+      win.wm_title("Delete mod")
 
-      l = Label(win, text="Select setting")
+      l = Label(win, text="Select mod or setting")
       l.grid(row=0, column=0)
       mods = self.database.Mods
       modList = []
       for mod, modObj in mods.items():
          modList.append(mod)
          for option, optionObj in modObj.Options.items():
-            modList.append(mod + " : " + optionObj.id)
+            modList.append(mod + " : " + optionObj.commandType)
 
       OptionVar = StringVar(win)
       w = OptionMenu(win, OptionVar, None, *modList)
