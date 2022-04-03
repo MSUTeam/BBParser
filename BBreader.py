@@ -59,8 +59,6 @@ class CommandOption:
    def __init__(self, _id, _mod):
       self.commandType = _id
       self.mod = _mod
-      self.database = _database 
-      self.dbTableKey = self.database.dbFolder + self.mod.ModID + ".db"
       printDebug("Created new CommandOption obj: " + str(self))
 
    def returnWriteResult(self, _result):
@@ -75,11 +73,11 @@ class CommandOption:
    def handleCommand(self, _commandObj):
       pass
 
-   def writeToFile(self, _file, _fileObj):
+   def writeToFile(self, _file):
       pass
 
    def __str__ (self):
-      return '{type}(commandType: {commandType} | Mod: {modID} | dbTableKey: {dbTableKey})'.format(type = self.__class__.__name__, commandType = self.commandType, modID = self.mod.ModID, dbTableKey = self.dbTableKey)
+      return '{type}(commandType: {commandType} | Mod: {modID} | dbTableKey: {dbTableKey})'.format(type = self.__class__.__name__, commandType = self.commandType, modID = self.mod.ModID, dbTableKey = self.mod.DBPath)
 
 #Simple type that doesn't write to the DB
 class WriteString(CommandOption):
@@ -90,11 +88,11 @@ class WriteString(CommandOption):
    def handleCommand(self, _commandObj):
       self.toPrint = "\n" + _commandObj.value
 
-   def writeToFile(self, _file, _fileObj):
+   def writeToFile(self, _file):
       with open(_file + ".nut", 'a') as f:
          f.write(self.returnFileHeader())
          f.write(self.toPrint)
-      _fileObj.TotalWritten.append(self.returnWriteResult(self.toPrint))
+      gui.addMsg(self.returnWriteResult(self.toPrint))
       self.toPrint = ""
 
 class WriteStringAppend(WriteString):
@@ -121,21 +119,22 @@ class WriteDatabase(CommandOption):
       return sub
 
    def initDatabase(self):
+      print("self.mod.DBPath " + self.mod.DBPath)
       columns = " ("
       for idx, colName in enumerate(self.TemplateArguments):
          columns += colName + " text"
          if idx != len(self.TemplateArguments) -1:
             columns += ", "
       columns += ")"
-      with db_ops(self.dbTableKey) as cur:
+      with db_ops(self.mod.DBPath) as cur:
          cur.execute("CREATE TABLE IF NOT EXISTS " + self.commandType + columns)
 
-   def writeToFile(self, _file, _fileObj):
+   def writeToFile(self, _file):
       #only write to file if it had updates in last parsing loop
       if(self.changedSinceLastUpdate == False):
          return
 
-      with db_ops(self.dbTableKey) as cur:
+      with db_ops(self.mod.DBPath) as cur:
          cur.execute("SELECT * FROM " + self.commandType)
          with open(_file + ".nut", 'w') as f:
             f.write(self.returnFileHeader())
@@ -144,14 +143,14 @@ class WriteDatabase(CommandOption):
                f.write(self.getTemplate(row[0], row[1], row[2]))
                
       for line in self.toLog:
-         _fileObj.TotalWritten.append(self.returnWriteResult(line))
+         gui.addMsg(self.returnWriteResult(line))
       self.toLog = []
       self.changedSinceLastUpdate = False
 
    def handleCommand(self, _commandObj):
       self.changedSinceLastUpdate = True
       _commandObj.extravalue = _commandObj.extravalue[0]
-      with db_ops(self.dbTableKey) as cur:
+      with db_ops(self.mod.DBPath) as cur:
          cur.execute("SELECT * FROM " + self.commandType + " WHERE settingID = ?", (_commandObj.value,))
          rows = cur.fetchall()
          if(len(rows) == 0):
@@ -166,20 +165,20 @@ class WriteDatabase(CommandOption):
 # Ingame mod settings menu
 class WriteModSetting(WriteDatabase):
    def __init__(self,  _commandType, _mod):
-      super().__init__( _commandType, _modID, _database, """this.MSU.System.ModSettings.setSettingFromPersistence("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
+      super().__init__( _commandType, _mod, """this.MSU.System.ModSettings.setSettingFromPersistence("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
 
 
 # Custom keybind handler settings menu option
 class WriteKeybind(WriteDatabase):
    def __init__(self,  _commandType, _mod):
-      super().__init__( _commandType, _modID, _database, """this.MSU.System.Keybinds.updateFromPersistence("$modID", "$settingID", "$value");\n""", ["modID", "settingID", "value"])
+      super().__init__( _commandType, _mod, """this.MSU.System.Keybinds.updateFromPersistence("$modID", "$settingID", "$value");\n""", ["modID", "settingID", "value"])
 
 
 class Mod:
    def __init__(self, _modID, _path, _dbPath):
       self.ModID = _modID
       self.ConfigPath = _path + "/" + self.ModID
-      self.DBPath = _dbPath + self.ModID
+      self.DBPath = _dbPath + self.ModID + ".db"
       self.Options = {}
       print("Created new Mod obj: " + str(self))
 
@@ -187,7 +186,7 @@ class Mod:
       commandType = _commandObj.commandType
       if (commandType not in self.Options) or (self.Options[commandType] == None):
          self.Options[commandType] = CommandOption.getCommandClass(commandType, self)
-      self.Options[commandType].handleCommand(commandObj)
+      self.Options[commandType].handleCommand(_commandObj)
 
    def initDatabase(self):
       pass
@@ -197,7 +196,7 @@ class Mod:
          os.mkdir(self.ConfigPath)
       for optionType, optionObj in self.Options.items():
          typePath = path.join(self.ConfigPath, optionType)
-         optionObj.writeToFile(typePath, self)
+         optionObj.writeToFile(typePath)
 
    def __str__ (self):
       result = 'Mod(ModID: {modid} | ConfigPath: {configpath} | DBPath: {dbpath})'.format(modid = self.ModID, configpath = self.ConfigPath, dbpath = self.DBPath)
@@ -227,7 +226,7 @@ class LoopDone(Exception):
 
 class Database:
    def __init__(self):
-      self.mainFolderPath = "default"
+      self.mainFolderPath = "./default"
       self.modsFolderPath = self.mainFolderPath + "/mods/"
       self.pathsDatabasePath = self.mainFolderPath + "/paths.db"
       self.modConfigPath = None
@@ -270,6 +269,7 @@ class Database:
    def initMainFolder(self):
       if path.isdir(self.mainFolderPath) == False:
          os.mkdir(self.mainFolderPath)
+         os.mkdir(self.modsFolderPath)
 
    def getExistingModFiles(self):
       if self.modConfigPath == None or path.isdir(self.modConfigPath) == False:
@@ -439,7 +439,7 @@ class Database:
 
    def writeFiles(self):
       if path.isdir(self.modConfigPath) == False:
-            os.mkdir(self.modConfigPath)
+         os.mkdir(self.modConfigPath)
       for modID, mod in self.Mods.items():
          mod.writeFiles()
 
