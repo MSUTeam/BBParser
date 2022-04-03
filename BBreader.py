@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import shutil
-import sys
+import sys 
 from tkinter import filedialog
 from tkinter import *
 from tkinter.messagebox import askyesno
@@ -11,24 +11,27 @@ from string import Template
 from contextlib import contextmanager
 from dataclasses import dataclass
 import re
+import typing
+from typing import Dict, List, Generator, Union
+
 
 
 
 @contextmanager
-def db_ops(db_name):
+def db_ops(db_name: str) -> Generator:
    conn = sqlite3.connect(db_name)
    cur = conn.cursor()
    yield cur
    conn.commit()
    conn.close()
 
-def printDebug(_text):
+def printDebug(_text: str) -> None:
    if DEBUGGING:
       print(_text)
 
-def resource_path(relative_path):
-   if hasattr(sys, '_MEIPASS'):
-      return os.path.join(sys._MEIPASS, relative_path)
+def resource_path(relative_path: str) -> str:
+   if hasattr(sys, '_MEIPASS'): 
+      return os.path.join(sys._MEIPASS, relative_path) # type: ignore
    return os.path.join(os.path.abspath("."), relative_path) 
 
 root = Tk()
@@ -40,11 +43,41 @@ class CommandObject:
    commandType : str
    modID : str
    value : str
-   extravalue : None
+   extravalue : List[str]
+
+
+class Mod:
+   def __init__(self, _modID: str, _path: str, _dbPath: str) -> None:
+      self.ModID = _modID
+      self.ConfigPath = _path + "/" + self.ModID
+      self.DBPath = _dbPath + self.ModID + ".db"
+      self.Options: Dict[str, CommandOption] = {}
+      print("Created new Mod obj: " + str(self))
+
+   def handleCommand(self, _commandObj: CommandObject) -> None:
+      commandType = _commandObj.commandType
+      if (commandType not in self.Options) or (self.Options[commandType] == None):
+         self.Options[commandType] = CommandOption.getCommandClass(commandType, self)
+      self.Options[commandType].handleCommand(_commandObj)
+
+   def initDatabase(self) -> None:
+      pass
+
+   def writeFiles(self) -> None:
+      if path.isdir(self.ConfigPath) == False:
+         os.mkdir(self.ConfigPath)
+      for optionType, optionObj in self.Options.items():
+         typePath = path.join(self.ConfigPath, optionType)
+         optionObj.writeToFile(typePath)
+
+   def __str__ (self) -> str:
+      result = 'Mod(ModID: {modid} | ConfigPath: {configpath} | DBPath: {dbpath})'.format(modid = self.ModID, configpath = self.ConfigPath, dbpath = self.DBPath)
+      return result
 
 # Base Class for a command option, some type of command that treats the passed data in a specific way
 class CommandOption:
-   def getCommandClass(_commandType, _mod):
+   @staticmethod
+   def getCommandClass(_commandType: str, _mod: Mod):
       if _commandType == "ModSetting":
          return WriteModSetting(_commandType, _mod)
       elif _commandType == "Keybind":
@@ -56,39 +89,39 @@ class CommandOption:
          else:
             return WriteString(_commandType, _mod)
 
-   def __init__(self, _id, _mod):
+   def __init__(self, _id: str, _mod: Mod) -> None:
       self.commandType = _id
       self.mod = _mod
       printDebug("Created new CommandOption obj: " + str(self))
 
-   def returnWriteResult(self, _result):
+   def returnWriteResult(self, _result: str) -> str:
       return "\nMod {modID} wrote option {commandType}: {result}".format(modID = self.mod.ModID, commandType = self.commandType, result = _result)
 
-   def returnFileHeader(self):
+   def returnFileHeader(self) -> str:
       return 'this.logInfo("{modID}::{commandType} is being executed");\n'.format(modID = self.mod.ModID, commandType = self.commandType)
 
-   def validateCommand(self, _commandObj):
+   def validateCommand(self, _commandObj: CommandObject) -> bool:
       return True
 
-   def handleCommand(self, _commandObj):
+   def handleCommand(self, _commandObj: CommandObject) -> None:
       pass
 
-   def writeToFile(self, _file):
+   def writeToFile(self, _file: str) -> None:
       pass
 
-   def __str__ (self):
+   def __str__ (self) -> str:
       return '{type}(commandType: {commandType} | Mod: {modID} | dbTableKey: {dbTableKey})'.format(type = self.__class__.__name__, commandType = self.commandType, modID = self.mod.ModID, dbTableKey = self.mod.DBPath)
 
 #Simple type that doesn't write to the DB
 class WriteString(CommandOption):
-   def __init__(self, _commandType, _mod):
+   def __init__(self, _commandType: str, _mod: Mod) -> None:
       super().__init__(_commandType, _mod)
       self.toPrint = ""
 
-   def handleCommand(self, _commandObj):
+   def handleCommand(self, _commandObj: CommandObject) -> None:
       self.toPrint = "\n" + _commandObj.value
 
-   def writeToFile(self, _file):
+   def writeToFile(self, _file: str) -> None:
       with open(_file + ".nut", 'a') as f:
          f.write(self.returnFileHeader())
          f.write(self.toPrint)
@@ -96,20 +129,20 @@ class WriteString(CommandOption):
       self.toPrint = ""
 
 class WriteStringAppend(WriteString):
-   def handleCommand(self, _commandObj):
+   def handleCommand(self, _commandObj: CommandObject) -> None:
       self.toPrint += "\n" + _commandObj.value
 
 #Type that writes to DB and prints all rows
 class WriteDatabase(CommandOption):
-   def __init__(self,  _commandType, _mod, _template, _templateArguments):
+   def __init__(self,  _commandType: str, _mod: Mod, _template: str, _templateArguments: List[str]) -> None:
       super().__init__( _commandType, _mod)
       self.Template = _template 
       self.TemplateArguments = _templateArguments
       self.initDatabase()
       self.changedSinceLastUpdate = True
-      self.toLog = [];
+      self.toLog: List[str] = [];
 
-   def getTemplate(self, _modID, _settingID, _value):
+   def getTemplate(self, _modID: str, _settingID: str, _value: str) -> str:
       argmap = {}
       argmap["modID"] = _modID
       argmap["settingID"] = _settingID
@@ -118,8 +151,7 @@ class WriteDatabase(CommandOption):
       sub = temp.substitute(argmap)
       return sub
 
-   def initDatabase(self):
-      print("self.mod.DBPath " + self.mod.DBPath)
+   def initDatabase(self) -> None:
       columns = " ("
       for idx, colName in enumerate(self.TemplateArguments):
          columns += colName + " text"
@@ -129,8 +161,8 @@ class WriteDatabase(CommandOption):
       with db_ops(self.mod.DBPath) as cur:
          cur.execute("CREATE TABLE IF NOT EXISTS " + self.commandType + columns)
 
-   def writeToFile(self, _file):
-      #only write to file if it had updates in last parsing loop
+   def writeToFile(self, _file: str) -> None:
+      # only write to file if it had updates in last parsing loop
       if(self.changedSinceLastUpdate == False):
          return
 
@@ -147,106 +179,61 @@ class WriteDatabase(CommandOption):
       self.toLog = []
       self.changedSinceLastUpdate = False
 
-   def handleCommand(self, _commandObj):
+   def handleCommand(self, _commandObj: CommandObject) -> None:
       self.changedSinceLastUpdate = True
-      _commandObj.extravalue = _commandObj.extravalue[0]
       with db_ops(self.mod.DBPath) as cur:
          cur.execute("SELECT * FROM " + self.commandType + " WHERE settingID = ?", (_commandObj.value,))
          rows = cur.fetchall()
          if(len(rows) == 0):
-            cur.execute("INSERT INTO " + self.commandType + " VALUES (?, ?, ?)" , (_commandObj.modID, _commandObj.value, _commandObj.extravalue))
+            cur.execute("INSERT INTO " + self.commandType + " VALUES (?, ?, ?)" , (_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
          else:
-            cur.execute("UPDATE " + self.commandType + " SET value = :value WHERE modID = :modID and settingID = :settingID", {"value" : _commandObj.extravalue, "modID" : _commandObj.modID, "settingID" : _commandObj.value })
-         self.toLog.append(self.getTemplate(_commandObj.modID, _commandObj.value, _commandObj.extravalue))
+            cur.execute("UPDATE " + self.commandType + " SET value = :value WHERE modID = :modID and settingID = :settingID", {"value" : _commandObj.extravalue[0], "modID" : _commandObj.modID, "settingID" : _commandObj.value })
+         self.toLog.append(self.getTemplate(_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
 
       
 
 
 # Ingame mod settings menu
 class WriteModSetting(WriteDatabase):
-   def __init__(self,  _commandType, _mod):
+   def __init__(self,  _commandType, _mod: Mod) -> None:
       super().__init__( _commandType, _mod, """this.MSU.System.ModSettings.setSettingFromPersistence("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
 
 
 # Custom keybind handler settings menu option
 class WriteKeybind(WriteDatabase):
-   def __init__(self,  _commandType, _mod):
+   def __init__(self,  _commandType, _mod: Mod) -> None:
       super().__init__( _commandType, _mod, """this.MSU.System.Keybinds.updateFromPersistence("$modID", "$settingID", "$value");\n""", ["modID", "settingID", "value"])
-
-
-class Mod:
-   def __init__(self, _modID, _path, _dbPath):
-      self.ModID = _modID
-      self.ConfigPath = _path + "/" + self.ModID
-      self.DBPath = _dbPath + self.ModID + ".db"
-      self.Options = {}
-      print("Created new Mod obj: " + str(self))
-
-   def handleCommand(self, _commandObj):
-      commandType = _commandObj.commandType
-      if (commandType not in self.Options) or (self.Options[commandType] == None):
-         self.Options[commandType] = CommandOption.getCommandClass(commandType, self)
-      self.Options[commandType].handleCommand(_commandObj)
-
-   def initDatabase(self):
-      pass
-
-   def writeFiles(self):
-      if path.isdir(self.ConfigPath) == False:
-         os.mkdir(self.ConfigPath)
-      for optionType, optionObj in self.Options.items():
-         typePath = path.join(self.ConfigPath, optionType)
-         optionObj.writeToFile(typePath)
-
-   def __str__ (self):
-      result = 'Mod(ModID: {modid} | ConfigPath: {configpath} | DBPath: {dbpath})'.format(modid = self.ModID, configpath = self.ConfigPath, dbpath = self.DBPath)
-      return result
-
-
-
-##reintroduce parse object? does all the parsing stuff, advantage of being easily removed and reinitialised between sessions
-# class ParseObject:
-#    def __init__(self, _database, _mods, _configpath, _logpath):
-#       self.database = _database
-#       self.mods = _mods
-#       self.configpath = configpath
-#       self.logpath = _logpath
-         # self.PreviousReadIndex = 0
-         # self.StopLoop = False
-         # self.LastUpdateTime = None
-         # self.LastBootTime = None
 
 
 class LoopDone(Exception):
    pass
 
-
 #manages all the CommandOptions to categorise them into Mods, parses the commands and outputs to the files
 # Handles the Database connection
 
 class Database:
-   def __init__(self):
+   def __init__(self) -> None:
       self.mainFolderPath = "./default"
       self.modsFolderPath = self.mainFolderPath + "/mods/"
       self.pathsDatabasePath = self.mainFolderPath + "/paths.db"
-      self.modConfigPath = None
-      self.logPath = None
+      self.modConfigPath = ""
+      self.logPath = ""
 
-      self.gui = None
-      self.Mods = {}
+      self.gui: GUI
+      self.Mods : Dict[str, Mod] = {}
       
 
-      self.TotalWritten = []
+      self.TotalWritten : List[str] = []
       self.PreviousReadIndex = 0
       self.StopLoop = False
-      self.LastUpdateTime = None
-      self.LastBootTime = None
+      self.LastUpdateTime : float = 0.0
+      self.LastBootTime : List[float] = [0, 0, 0]
 
       self.initMainFolder()
       self.initDatabase()
       self.getExistingModFiles()
 
-   def initDatabase(self):
+   def initDatabase(self) -> None:
 
       with db_ops(self.pathsDatabasePath) as cur:
          cur.execute('CREATE TABLE IF NOT EXISTS paths (type text, path text)')
@@ -266,13 +253,13 @@ class Database:
          else:
             cur.execute('INSERT INTO paths VALUES ("log", Null)')
 
-   def initMainFolder(self):
+   def initMainFolder(self) -> None:
       if path.isdir(self.mainFolderPath) == False:
          os.mkdir(self.mainFolderPath)
          os.mkdir(self.modsFolderPath)
 
-   def getExistingModFiles(self):
-      if self.modConfigPath == None or path.isdir(self.modConfigPath) == False:
+   def getExistingModFiles(self) -> None:
+      if self.modConfigPath == "":
          return
       idx = 0
       for (dirpath, dirnames, filenames) in os.walk(self.modConfigPath):
@@ -289,21 +276,21 @@ class Database:
                   self.Mods[modname].Options[filename] = CommandOption.getCommandClass(filename, self.Mods[modname])
          idx += 1
 
-   def updateGameDirectory(self, _path):
+   def updateGameDirectory(self, _path: str) -> None:
       self.modConfigPath = _path
       with db_ops(self.pathsDatabasePath) as cur:
          cur.execute("""UPDATE paths SET path = ? WHERE type = 'data'""", (self.modConfigPath,))
       
-   def updateLogDirectory(self, _path):
+   def updateLogDirectory(self, _path: str) -> None:
       self.logPath = _path
       with db_ops(self.pathsDatabasePath) as cur:
          cur.execute("""UPDATE paths SET path = ? WHERE type = 'log'""", (self.logPath,))
 
    
-   def isReadyToRun(self):
-      return self.modConfigPath != None and self.logPath != None
+   def isReadyToRun(self) -> bool:
+      return self.modConfigPath != "" and self.logPath != ""
 
-   def parseLocalInput(self, _input):
+   def parseLocalInput(self, _input : str) -> None:
       global DEBUGGING
       if _input.rstrip() == "DEBUG":
          DEBUGGING = True
@@ -319,13 +306,15 @@ class Database:
          return
       else:
          self.writeInputLog(_input)
+         oldPath = self.logPath
          self.logPath = "./local_log.html"
-         self.parse()
+         self.parseGameLog()
          self.writeFiles()
          os.remove("local_log.html")
+         self.logPath = oldPath
 
 
-   def parseLogInLoop(self):
+   def parseLogInLoop(self) -> None:
       #main loop, uses a try - else structure with root.after timeouts
       try:
          if self.StopLoop == True:
@@ -337,9 +326,10 @@ class Database:
             self.LastUpdateTime = currentTimeFromLog
             
             if self.isNewBoot():
+               self.setBootTime()
                self.resetReadIndex()
            
-            self.parse()
+            self.parseGameLog()
             self.writeFiles()
             for msg in self.TotalWritten:
                self.gui.addMsg(msg)
@@ -365,91 +355,86 @@ class Database:
       else: 
           root.after(1000, self.parseLogInLoop)
 
-   def getBootTime(self):
+   def getBootTime(self) -> List[float]:
       # gets time info of first entry ín the log
       with open(self.logPath) as fp:  
-         time = re.search('(?:<div class="time">)(\d\d:\d\d:\d\d)(?:<\/div>)', fp.readline()).group(1)
-         return [int(num) for num in time.split(":")]
+         time = re.search('(?:<div class="time">)(\d\d:\d\d:\d\d)(?:<\/div>)', fp.readline()).group(1) # type: ignore
+         return [float(num) for num in time.split(":")]
 
-
-   def setBootTime(self):
+   def setBootTime(self) -> None:
       self.LastBootTime = self.getBootTime()
    
-
-   def isNewBoot(self):
+   def isNewBoot(self) -> bool:
       # See if the game has been restarted and we need to index from 0 again
-      if self.LastBootTime == None:
-         self.setBootTime()
+      if self.LastBootTime == 0.0: 
          return True
-
       currentBootTime = self.getBootTime()
       for num1, num2 in zip(currentBootTime, self.LastBootTime):
          if num1 > num2:
-            self.setBootTime()
             return True
-
       return False
 
-   def clearLoopVars(self):
+   def clearLoopVars(self) -> None:
       self.TotalWritten = []
-      self.LastBootTime = None
-      self.LastUpdateTime = None
+      self.LastBootTime = [0, 0, 0]
+      self.LastUpdateTime = 0.0
       self.resetReadIndex()
       self.StopLoop = False
       global DEBUGGING
       if DEBUGGING:
          self.writeTestLog()
 
-   def parse(self):
+   def parseGameLog(self) -> None:
       commands = self.getCommandsFromLog()
       for command in commands:
-         commandObj = self.getCommandObj(command)
-         if commandObj == False:
+         if self.validateCommandObj(command) == False:
             continue
+         commandObj = self.getCommandObj(command)
          self.increaseReadIndex()
-         commandType = commandObj.commandType
          modID = commandObj.modID
          if modID not in self.Mods:
             self.Mods[modID] = Mod(modID, self.modConfigPath, self.modsFolderPath)
          self.Mods[modID].handleCommand(commandObj)
 
-   def getCommandObj(self, _command):
+   def validateCommandObj(self, _command : List[str]) -> bool:
       _command = [self.scrub(entry) for entry in _command]
-      extravalue = None
       if(len(_command)) < 3:
          print("Command " + str(_command) + " is not valid!")
          return False
+      return True
+
+   def getCommandObj(self, _command : List[str]) -> CommandObject:
+      extravalue = []
       if len(_command) > 3:
          extravalue = _command[3:]
       commandObj = CommandObject(commandType = _command[0], modID = _command[1], value = _command[2], extravalue = extravalue)
-      print(commandObj)
       return commandObj
 
-   def increaseReadIndex(self, _value = 1):
+   def increaseReadIndex(self, _value : int = 1) -> None:
       self.PreviousReadIndex += _value
 
-   def resetReadIndex(self):
+   def resetReadIndex(self) -> None:
       self.PreviousReadIndex = 0
 
-   def getCommandsFromLog(self):
+   def getCommandsFromLog(self) -> List[List[str]]:
       with open(self.logPath) as fp: 
          regexResult = re.findall('(?:<div class="text">BBPARSER;)(.+?)(?=<\/div>)', fp.readline())
          result = list(map(lambda entry: entry.split(";"), regexResult))[self.PreviousReadIndex:]
          return result
 
-   def writeFiles(self):
+   def writeFiles(self) -> None:
       if path.isdir(self.modConfigPath) == False:
          os.mkdir(self.modConfigPath)
       for modID, mod in self.Mods.items():
          mod.writeFiles()
 
    #this can be expanded to parse things further
-   def writeInputLog(self, _input):
+   def writeInputLog(self, _input : str) -> None:
       with open("local_log.html", "w") as log:
          for line in _input.split(";"):
             log.write("""<div class="text">BBPARSER;Global;MSU;""" + line.rstrip() + """</div>""")
 
-   def delete(self, _arg):
+   def delete(self, _arg : str) -> None:
       if(_arg == ""):
          return
       result = _arg.split(":")
@@ -461,7 +446,7 @@ class Database:
 
       self.gui.updateOutput()
 
-   def deleteMod(self, _modID):
+   def deleteMod(self, _modID : str)  -> None:
       mod = self.Mods[_modID]
       directory = mod.ConfigPath
       db_directory = mod.DBPath
@@ -474,7 +459,7 @@ class Database:
       self.removeDB(db_directory)
       del self.Mods[_modID]
 
-   def deleteOptionFromMod(self, _modID, _commandType):
+   def deleteOptionFromMod(self, _modID : str, _commandType : str)  -> None:
       mod = self.Mods[_modID]
       directory = mod.ConfigPath + "/" + _commandType +".nut"
       db_directory = mod.DBPath
@@ -482,13 +467,13 @@ class Database:
          os.remove(directory)
          self.gui.addMsg("Deleted folder: " + directory)
       except Exception as e:
-         self.gui.addMsg("Could not delete folder " + directory + " : " + e)
+         self.gui.addMsg("Could not delete folder " + directory + " : " + str(e))
         
       self.removeFromDB(db_directory, _commandType)
       del mod.Options[_commandType]
 
 
-   def removeDB(self, _path):
+   def removeDB(self, _path : str) -> None:
       if path.isfile(_path):
          try:
             os.remove(_path)
@@ -497,7 +482,7 @@ class Database:
             self.gui.addMsg("Could not delete database " + _path)
          
 
-   def removeFromDB(self, _path, _commandType):
+   def removeFromDB(self, _path : str, _commandType : str) -> None:
       if path.isfile(_path):
          try:
             with db_ops(_path) as cur:
@@ -507,7 +492,7 @@ class Database:
             self.gui.addMsg("Could not delete data " + _commandType + " from database " + _path)
          
 
-   def deleteAllSettings(self):
+   def deleteAllSettings(self) -> None:
       os.remove(self.pathsDatabasePath)
 
       if path.isdir(self.modsFolderPath):
@@ -520,10 +505,10 @@ class Database:
          
       self.initDatabase()
 
-   def scrub(self, _string):
+   def scrub(self, _string : str) -> str:
       return ''.join( chr for chr in _string if (chr.isalnum() or chr == "+" or chr == "_" or chr == "-" or chr == "/"))
 
-   def writeTestLog(self):
+   def writeTestLog(self) -> None:
       with open("log.html", "w") as log:
          log.write("""<div class="time">00:00:00</div>""")
          log.write("""<div class="text">BBPARSER;String;Vanilla;this.logInfo("Hello, World!");</div>""")
@@ -536,7 +521,7 @@ class Database:
          # for x in range(100):
          #    log.write("<div class='text'>BBPARSER;Keybind;MSU;{idx};c+ctrl</div>".format(idx = x))
 
-   def setDebug(self, _val):
+   def setDebug(self, _val : bool) -> None:
       if(_val):
          if path.isdir("./mod_db_debug") == False:
             os.mkdir("./mod_db_debug")
@@ -563,10 +548,10 @@ class Database:
 
 # Handles the GUI element
 class GUI:
-   def __init__(self, _database):
+   def __init__(self, _database : Database) -> None:
       self.database = _database
       self.database.gui = self
-      self.PendingOutput = []
+      self.PendingOutput : List[str] = []
       self.bannerImg = PhotoImage(file=resource_path("assets/banner.gif"))  
       self.bannerCanvas = Canvas(root, width = 792, height =82)
       self.bannerCanvas.create_image(0, 0, anchor="nw", image=self.bannerImg)
@@ -615,7 +600,7 @@ class GUI:
       self.updateStringVarText(self.logPathVar, self.database.logPath if self.database.logPath != None else "Select your log.html file (documents/Battle Brothers/log.html)")
       self.updateButtons()
 
-   def updateGameDirectory(self):
+   def updateGameDirectory(self) -> None:
       directory = filedialog.askdirectory()
       if directory == None or len(directory.split("/")) < 2 or (DEBUGGING == False and directory.split("/")[-1] != "data"):
          self.addMsg("Bad Path! " + str(directory))
@@ -626,52 +611,52 @@ class GUI:
       self.updateButtons()
       self.updateOutput()
          
-   def updateLogDirectory(self):
+   def updateLogDirectory(self) -> None:
       directory = filedialog.askopenfile(mode ='r', filetypes =[('log.html', 'log.html')])
-      if directory == None or directory.name.split("/")[-1] != "log.html":
+      if directory == None or directory.name.split("/")[-1] != "log.html": # type: ignore
          self.addMsg("Bad Path! " + str(directory))
       else:
-         self.database.updateLogDirectory(directory.name)
+         self.database.updateLogDirectory(directory.name) # type: ignore
          self.updateStringVarText(self.logPathVar, self.database.logPath)
-         self.addMsg("log file selected successfully! " + directory.name)
+         self.addMsg("log file selected successfully! " + directory.name) # type: ignore
       self.updateButtons()
       self.updateOutput()
 
-   def updateStringVarText(self, _stringvar, _text):
+   def updateStringVarText(self, _stringvar : StringVar, _text : str) -> None:
       _stringvar.set(_text)
 
-   def updateButtonStatus(self, _button, _bool):
+   def updateButtonStatus(self, _button : Button, _bool : bool) -> None:
       if _bool:
          _button.config(state = "active")
       else:
          _button.config(state = "disabled")
 
-   def updateButtons(self):
+   def updateButtons(self) -> None:
       self.updateButtonStatus(self.runParseButton, self.database.isReadyToRun())
       self.updateButtonStatus(self.deleteSingleModButton, self.database.modConfigPath != None)
       # self.updateButtonStatus(self.deleteSingleSettingButton, self.database.modConfigPath != None)
 
-   def resetStringVars(self):
+   def resetStringVars(self) -> None:
       self.updateStringVarText(self.dataPathVar, "Browse to your game directory")
       self.updateStringVarText(self.logPathVar, "Select your log.html file (documents/Battle Brothers/log.html)")
 
-   def runFileParse(self):
+   def runFileParse(self) -> None:
       self.clearOutput()
       self.addMsg("Currently parsing file!")
       self.runParseButton.configure(text = "Stop Updating", command= self.stopParse)
       self.database.clearLoopVars()
       self.database.parseLogInLoop()
 
-   def stopParse(self):
+   def stopParse(self) -> None:
       self.runParseButton.configure( text = "Update settings", command=self.runFileParse)
       self.database.StopLoop = True
 
-   def runInputParse(self):
+   def runInputParse(self) -> None:
       self.addMsg("Trying to parse input")
       text = self.ResultEntry.get("1.0",END)
       self.database.parseLocalInput(text)
 
-   def deleteAllSettings(self):
+   def deleteAllSettings(self) -> None:
       answer = askyesno("delete all settings", "Are you sure? This will delete all files in your mod_config and the database.")
       if answer:
          self.clearOutput()
@@ -680,7 +665,7 @@ class GUI:
          self.database.deleteAllSettings()
       self.updateOutput()
 
-   def deleteSingleMod(self):
+   def deleteSingleMod(self) -> None:
       win = Toplevel()
       win.wm_title("Delete mod")
 
@@ -694,7 +679,7 @@ class GUI:
             modList.append(mod + " : " + optionObj.commandType)
 
       OptionVar = StringVar(win)
-      w = OptionMenu(win, OptionVar, None, *modList)
+      w = OptionMenu(win, OptionVar, *modList)
       w.grid(row=0, column=1)
 
       def removeSetting():
@@ -707,13 +692,13 @@ class GUI:
       b.grid(row=1, column=0)
       
 
-   def addMsg(self, _text, _newline = True):
+   def addMsg(self, _text : str, _newline : bool = True) -> None:
       if _newline:
          _text += "\n"
       
       self.PendingOutput.append(_text)
 
-   def updateOutput(self):
+   def updateOutput(self) -> None:
       result = ""
       while len(self.PendingOutput) > 0:
          text = self.PendingOutput.pop(0)
@@ -721,7 +706,7 @@ class GUI:
          printDebug(text)
       self.ResultEntry.insert(END, result)
       
-   def clearOutput(self):
+   def clearOutput(self) -> None:
       self.ResultEntry.delete('1.0', END)
       self.PendingOutput = []
 
