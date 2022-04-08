@@ -52,7 +52,6 @@ class Mod:
       self.ConfigPath = _path + "/" + self.ModID
       self.DBPath = _dbPath + self.ModID + ".db"
       self.Options: Dict[str, CommandOption] = {}
-      print("Created new Mod obj: " + str(self))
 
    def handleCommand(self, _commandObj: CommandObject) -> None:
       commandType = _commandObj.commandType
@@ -215,8 +214,8 @@ class Database:
    def __init__(self) -> None:
       self.mainFolderPath = "./default"
       self.modsFolderPath = self.mainFolderPath + "/mods/"
-      self.pathsDatabasePath = self.mainFolderPath + "/paths.db"
-      self.modConfigPath = ""
+      self.pathsDatabasePath = self.mainFolderPath + "/paths_db.db"
+      self.modConfigPath : str = ""
       self.logPath = ""
 
       self.gui: GUI
@@ -234,24 +233,27 @@ class Database:
       self.getExistingModFiles()
 
    def initDatabase(self) -> None:
-
       with db_ops(self.pathsDatabasePath) as cur:
-         cur.execute('CREATE TABLE IF NOT EXISTS paths (type text, path text)')
-         # Create /data path database entry
+         cur.execute('SELECT count(*) from sqlite_master WHERE type="table" AND name="paths"')
+         database = cur.fetchone()
+         if(database[0] == 0):
+            cur.execute('CREATE TABLE paths (type text, path text)')
+            cur.execute('INSERT INTO paths VALUES ("data", Null)')
+            cur.execute('INSERT INTO paths VALUES ("log", Null)')
+            return
+
          cur.execute('SELECT path FROM paths WHERE type="data"')
          gamedir = cur.fetchone()
-         if(gamedir != None):
+         if(gamedir[0] != None):
             self.modConfigPath = gamedir[0]
-         else:
-            cur.execute('INSERT INTO paths VALUES ("data", Null)')
+            
 
          # Create log.html path database entry
          cur.execute('SELECT path FROM paths WHERE type="log"')
          logdir = cur.fetchone()
-         if(logdir != None):
+         if(logdir[0] != None):
             self.logPath = logdir[0]
-         else:
-            cur.execute('INSERT INTO paths VALUES ("log", Null)')
+            
 
    def initMainFolder(self) -> None:
       if path.isdir(self.mainFolderPath) == False:
@@ -552,7 +554,7 @@ class GUI:
       self.database = _database
       self.database.gui = self
       self.PendingOutput : List[str] = []
-      self.bannerImg = PhotoImage(file=resource_path("assets/banner.gif"))  
+      self.bannerImg = PhotoImage(file=resource_path("assets\\banner.gif"))  
       self.bannerCanvas = Canvas(root, width = 792, height =82)
       self.bannerCanvas.create_image(0, 0, anchor="nw", image=self.bannerImg)
       self.bannerCanvas.grid(row=0, column=0, columnspan = 2)
@@ -596,8 +598,8 @@ class GUI:
 
       self.ResultEntry = Text(root)
       self.ResultEntry.grid(row=9, column = 0)
-      self.updateStringVarText(self.dataPathVar, self.database.modConfigPath if self.database.modConfigPath != None else "Browse to your game directory")
-      self.updateStringVarText(self.logPathVar, self.database.logPath if self.database.logPath != None else "Select your log.html file (documents/Battle Brothers/log.html)")
+      self.updateStringVarText(self.dataPathVar, "Data Folder Path: " + self.database.modConfigPath if self.database.modConfigPath != "" else "Browse to your game directory (./Battle Brothers/data)")
+      self.updateStringVarText(self.logPathVar, "log.html Path: " + self.database.logPath if self.database.logPath != "" else "Select your log.html file (./Documents/Battle Brothers/log.html)")
       self.updateButtons()
 
    def updateGameDirectory(self) -> None:

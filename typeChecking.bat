@@ -1,1 +1,1 @@
-mypy bbreader.py
+mypy BBParser.py

@@ -1,5 +1,5 @@
-# BBReader
-An application for parsing html logs, extracting data and writing the results to squirrel
+# BBParser
+An application for parsing `log.html` of Battle Brothers, extracting data and writing the results to the data folder.
 
 To edit the file, set up an Anaconda instance with Beautiful Soup 4
 
