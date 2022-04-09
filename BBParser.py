@@ -564,26 +564,28 @@ class GUI:
       self.dbNameLabel = Label(root, text="Database: " + self.database.pathsDatabasePath)
       self.dbNameLabel.grid(row=1, column=1)
 
-      self.dataPathVar = StringVar(root, "Browse to your game directory")
+      self.dataPathVarDefault = "Browse to your game directory (./Battle Brothers/data)"
+      self.dataPathVar = StringVar(root, self.dataPathVarDefault)
       self.dataPathLabel = Label(root, textvariable = self.dataPathVar)
       self.dataPathLabel.grid(row=3, column=0)
       self.dataPathButton =  Button(text="Browse", command=self.updateGameDirectory)
       self.dataPathButton.grid(row=3, column=1)
       
-      self.logPathVar = StringVar(root, "Browse to your log.html directory (documents/Battle Brothers/)")
+      self.logPathVarDefault = "Browse to your log.html directory (documents/Battle Brothers/)"
+      self.logPathVar = StringVar(root, self.logPathVarDefault)
       self.logPathLabel = Label(root, textvariable = self.logPathVar)
       self.logPathLabel.grid(row=4, column=0)
       self.logPathButton =  Button(text="Browse", command=self.updateLogDirectory)
       self.logPathButton.grid(row=4, column=1)
 
-      self.deleteSingleSettingLabel = Label(root, text = "delete all settings for a select mod folder.")
+      self.deleteSingleSettingLabel = Label(root, text = "Delete all settings for a select mod.")
       self.deleteSingleSettingLabel.grid(row=6, column=0)
-      self.deleteSingleModButton = Button(root, text="delete mod settings", command=self.deleteSingleMod, state="disabled")
+      self.deleteSingleModButton = Button(root, text="Delete mod settings", command=self.deleteSingleMod, state="disabled")
       self.deleteSingleModButton.grid(row=6, column=1)
 
-      self.deleteAllLabel = Label(root, text = "delete all settings to get a clean install")
+      self.deleteAllLabel = Label(root, text = "Delete all settings to get a clean install")
       self.deleteAllLabel.grid(row=7, column=0)
-      self.deleteAllButton = Button(root, text="delete all settings", command=self.deleteAllSettings, state="active")
+      self.deleteAllButton = Button(root, text="Delete all settings", command=self.deleteAllSettings, state="active")
       self.deleteAllButton.grid(row=7, column=1)
 
       self.runParseButton = Button(root, text = "Update settings", command=self.runFileParse, state="disabled")
@@ -598,8 +600,8 @@ class GUI:
 
       self.ResultEntry = Text(root)
       self.ResultEntry.grid(row=9, column = 0)
-      self.updateStringVarText(self.dataPathVar, "Data Folder Path: " + self.database.modConfigPath if self.database.modConfigPath != "" else "Browse to your game directory (./Battle Brothers/data)")
-      self.updateStringVarText(self.logPathVar, "log.html Path: " + self.database.logPath if self.database.logPath != "" else "Select your log.html file (./Documents/Battle Brothers/log.html)")
+      self.updateStringVarText(self.dataPathVar, "Data Folder Path: {dataPath}".format(dataPath = self.database.modConfigPath) if self.database.modConfigPath != "" else self.dataPathVarDefault)
+      self.updateStringVarText(self.logPathVar, "log.html Path: {logPath}".format(logPath = self.database.logPath) if self.database.logPath != "" else self.logPathVarDefault)
       self.updateButtons()
 
    def updateGameDirectory(self) -> None:
@@ -608,7 +610,7 @@ class GUI:
          self.addMsg("Bad Path! " + str(directory))
       else:
          self.database.updateGameDirectory(directory + "/mod_config")
-         self.updateStringVarText(self.dataPathVar, self.database.modConfigPath)
+         self.updateStringVarText(self.dataPathVar, "Data Folder Path: {dataPath}".format(dataPath = self.database.modConfigPath))
          self.addMsg("Directory selected successfully! " + str(directory))
       self.updateButtons()
       self.updateOutput()
@@ -619,8 +621,8 @@ class GUI:
          self.addMsg("Bad Path! " + str(directory))
       else:
          self.database.updateLogDirectory(directory.name) # type: ignore
-         self.updateStringVarText(self.logPathVar, self.database.logPath)
-         self.addMsg("log file selected successfully! " + directory.name) # type: ignore
+         self.updateStringVarText(self.logPathVar, "log.html Path: {logPath}".format(logPath = self.database.logPath))
+         self.addMsg("log.html selected successfully! " + directory.name) # type: ignore
       self.updateButtons()
       self.updateOutput()
 
@@ -639,8 +641,8 @@ class GUI:
       # self.updateButtonStatus(self.deleteSingleSettingButton, self.database.modConfigPath != None)
 
    def resetStringVars(self) -> None:
-      self.updateStringVarText(self.dataPathVar, "Browse to your game directory")
-      self.updateStringVarText(self.logPathVar, "Select your log.html file (documents/Battle Brothers/log.html)")
+      self.updateStringVarText(self.dataPathVar, self.dataPathVarDefault)
+      self.updateStringVarText(self.logPathVar, self.logPathVarDefault)
 
    def runFileParse(self) -> None:
       self.clearOutput()
