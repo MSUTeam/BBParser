@@ -3,7 +3,6 @@ log.html
 __pycache__/
 build/
 dist/
-BBreader.spec
-build.ps1
+build.bat
 mod_config/
 mod_db/
