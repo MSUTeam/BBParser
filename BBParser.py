@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import re
 import typing
 from typing import Dict, List, Generator, Union
+import traceback
 
 
 
@@ -157,8 +158,10 @@ class WriteDatabase(CommandOption):
          if idx != len(self.TemplateArguments) -1:
             columns += ", "
       columns += ")"
+      result = self.commandType + columns
       with db_ops(self.mod.DBPath) as cur:
-         cur.execute("CREATE TABLE IF NOT EXISTS " + self.commandType + columns)
+         cur.execute('CREATE TABLE IF NOT EXISTS {}'.format(result.replace('"', '""')))
+
 
    def writeToFile(self, _file: str) -> None:
       # only write to file if it had updates in last parsing loop
@@ -166,7 +169,7 @@ class WriteDatabase(CommandOption):
          return
 
       with db_ops(self.mod.DBPath) as cur:
-         cur.execute("SELECT * FROM " + self.commandType)
+         cur.execute('SELECT * FROM "{}"'.format(self.commandType.replace('"', '""')))
          with open(_file + ".nut", 'w') as f:
             f.write(self.returnFileHeader())
             rows = cur.fetchall()
@@ -181,12 +184,12 @@ class WriteDatabase(CommandOption):
    def handleCommand(self, _commandObj: CommandObject) -> None:
       self.changedSinceLastUpdate = True
       with db_ops(self.mod.DBPath) as cur:
-         cur.execute("SELECT * FROM " + self.commandType + " WHERE settingID = ?", (_commandObj.value,))
+         cur.execute('SELECT * FROM "{}" WHERE settingID = ?'.format(self.commandType.replace('"', '""')), (_commandObj.value,))
          rows = cur.fetchall()
          if(len(rows) == 0):
-            cur.execute("INSERT INTO " + self.commandType + " VALUES (?, ?, ?)" , (_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
+            cur.execute('INSERT INTO "{}" VALUES (?, ?, ?)'.format(self.commandType.replace('"', '""')), (_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
          else:
-            cur.execute("UPDATE " + self.commandType + " SET value = :value WHERE modID = :modID and settingID = :settingID", {"value" : _commandObj.extravalue[0], "modID" : _commandObj.modID, "settingID" : _commandObj.value })
+            cur.execute('UPDATE "{}" SET value = ? WHERE modID = ? and settingID = ?'.format(self.commandType.replace('"', '""')), (_commandObj.extravalue[0], _commandObj.modID, _commandObj.value))
          self.toLog.append(self.getTemplate(_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
 
       
@@ -258,6 +261,7 @@ class Database:
    def initMainFolder(self) -> None:
       if path.isdir(self.mainFolderPath) == False:
          os.mkdir(self.mainFolderPath)
+      if path.isdir(self.modsFolderPath) == False:
          os.mkdir(self.modsFolderPath)
 
    def getExistingModFiles(self) -> None:
@@ -347,6 +351,7 @@ class Database:
 
       except Exception as e:
          print("BBParser encountered an error: " +  str(e))
+         print(traceback.format_exc())
 
       except IOError as e:
          self.gui.addMsg("Could not open log.html!")
@@ -401,8 +406,12 @@ class Database:
    def validateCommandObj(self, _command : List[str]) -> bool:
       _command = [self.scrub(entry) for entry in _command]
       if(len(_command)) < 3:
-         print("Command " + str(_command) + " is not valid!")
+         print("Command {command} is not valid! Too few entries.".format(command = str(_command)))
          return False
+      for entry in _command:
+         if len(entry) == 0:
+            print("Command {command} is not valid! Entry {entry} length is 0.".format(command = str(_command), entry = entry))
+
       return True
 
    def getCommandObj(self, _command : List[str]) -> CommandObject:
