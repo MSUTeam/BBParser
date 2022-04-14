@@ -253,8 +253,6 @@ class Database:
       self.pathsDatabasePath = self.mainFolderPath + "/paths_db.db"
       self.modConfigPath : str = ""
       self.logPath = ""
-
-      self.gui: GUI
       self.Mods : Dict[str, Mod] = {}
       
 
@@ -333,15 +331,15 @@ class Database:
       global DEBUGGING
       if _input.rstrip() == "DEBUG":
          DEBUGGING = True
-         self.gui.addMsg("DEBUGGING ENABLED")
+         gui.addMsg("DEBUGGING ENABLED")
          self.setDebug(True)
-         self.gui.updateOutput()
+         gui.updateOutput()
          return
       elif _input.rstrip() == "!DEBUG":
          DEBUGGING = False
          self.setDebug(False)
-         self.gui.addMsg("DEBUGGING DISABLED")
-         self.gui.updateOutput()
+         gui.addMsg("DEBUGGING DISABLED")
+         gui.updateOutput()
          return
       else:
          self.writeInputLog(_input)
@@ -371,13 +369,13 @@ class Database:
             self.parseGameLog()
             self.writeFiles()
             for msg in self.TotalWritten:
-               self.gui.addMsg(msg)
-            self.gui.updateOutput()
+               gui.addMsg(msg)
+            gui.updateOutput()
             self.TotalWritten = []
 
       except LoopDone as e:
-         self.gui.addMsg("Completed!")
-         self.gui.updateOutput()
+         gui.addMsg("Completed!")
+         gui.updateOutput()
          self.clearLoopVars()
          if DEBUGGING:
             os.remove("./log.html")
@@ -387,8 +385,8 @@ class Database:
          print(traceback.format_exc())
 
       except IOError as e:
-         self.gui.addMsg("Could not open log.html!")
-         self.gui.updateOutput()
+         gui.addMsg("Could not open log.html!")
+         gui.updateOutput()
          if DEBUGGING:
             os.remove("./log.html")  
 
@@ -488,7 +486,7 @@ class Database:
       elif(len(result) == 2):
          self.deleteOptionFromMod(result[0].rstrip(), result[1].lstrip())
 
-      self.gui.updateOutput()
+      gui.updateOutput()
 
    def deleteMod(self, _modID : str)  -> None:
       mod = self.Mods[_modID]
@@ -496,9 +494,9 @@ class Database:
       db_directory = mod.DBPath
       try: 
          shutil.rmtree(directory)
-         self.gui.addMsg("Deleted folder: " + directory)
+         gui.addMsg("Deleted folder: " + directory)
       except Exception as e:
-         self.gui.addMsg("Could not delete folder " + str(directory) + " : " + str(e))
+         gui.addMsg("Could not delete folder " + str(directory) + " : " + str(e))
         
       self.removeDB(db_directory)
       del self.Mods[_modID]
@@ -509,9 +507,9 @@ class Database:
       db_directory = mod.DBPath
       try: 
          os.remove(directory)
-         self.gui.addMsg("Deleted folder: " + directory)
+         gui.addMsg("Deleted folder: " + directory)
       except Exception as e:
-         self.gui.addMsg("Could not delete folder " + directory + " : " + str(e))
+         gui.addMsg("Could not delete folder " + directory + " : " + str(e))
         
       self.removeFromDB(db_directory, _commandType)
       del mod.Options[_commandType]
@@ -521,9 +519,9 @@ class Database:
       if path.isfile(_path):
          try:
             os.remove(_path)
-            self.gui.addMsg("Deleted database " + _path)
+            gui.addMsg("Deleted database " + _path)
          except:
-            self.gui.addMsg("Could not delete database " + _path)
+            gui.addMsg("Could not delete database " + _path)
          
 
    def removeFromDB(self, _path : str, _commandType : str) -> None:
@@ -531,20 +529,20 @@ class Database:
          try:
             with db_ops(_path) as cur:
                cur.execute("DROP TABLE IF EXISTS " + _commandType)
-            self.gui.addMsg("Deleted data " + _commandType + " from database " + _path)
+            gui.addMsg("Deleted data " + _commandType + " from database " + _path)
          except:
-            self.gui.addMsg("Could not delete data " + _commandType + " from database " + _path)
+            gui.addMsg("Could not delete data " + _commandType + " from database " + _path)
          
 
    def deleteAllSettings(self) -> None:
       os.remove(self.pathsDatabasePath)
 
       if path.isdir(self.modsFolderPath):
-         self.gui.addMsg("Deleted folder " + self.modsFolderPath)
+         gui.addMsg("Deleted folder " + self.modsFolderPath)
          shutil.rmtree(self.modsFolderPath)
 
       if self.modConfigPath != None and path.isdir(self.modConfigPath):
-         self.gui.addMsg("Deleted folder " + self.modConfigPath)
+         gui.addMsg("Deleted folder " + self.modConfigPath)
          shutil.rmtree(self.modConfigPath)
          
       self.initDatabase()
@@ -583,10 +581,10 @@ class Database:
          self.dbFolder = "./mod_db"
          self.initDatabase()
 
-      self.gui.updateButtons()
-      self.gui.updateOutput()
-      self.gui.updateStringVarText(gui.logPathVar, self.logPath)
-      self.gui.updateStringVarText(gui.dataPathVar, self.modConfigPath)
+      gui.updateButtons()
+      gui.updateOutput()
+      gui.updateStringVarText(gui.logPathVar, self.logPath)
+      gui.updateStringVarText(gui.dataPathVar, self.modConfigPath)
      
 
 
