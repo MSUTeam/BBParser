@@ -67,8 +67,10 @@ class Mod:
       if path.isdir(self.ConfigPath) == False:
          os.mkdir(self.ConfigPath)
       for optionType, optionObj in self.Options.items():
-         typePath = path.join(self.ConfigPath, optionType)
-         optionObj.writeToFile(typePath)
+         if optionObj.shouldWriteToFile():
+            toPrint = optionObj.writeToFile()
+            for line in toPrint:
+               gui.addMsg(line)
 
    def __str__ (self) -> str:
       result = 'Mod(ModID: {modid} | ConfigPath: {configpath} | DBPath: {dbpath})'.format(modid = self.ModID, configpath = self.ConfigPath, dbpath = self.DBPath)
@@ -94,7 +96,7 @@ class CommandOption:
       self.mod = _mod
       printDebug("Created new CommandOption obj: " + str(self))
 
-   def returnWriteResult(self, _result: str) -> str:
+   def returnWriteResultHeader(self, _result: str) -> str:
       return "\nMod {modID} wrote option {commandType}: {result}".format(modID = self.mod.ModID, commandType = self.commandType, result = _result)
 
    def returnFileHeader(self) -> str:
@@ -106,8 +108,19 @@ class CommandOption:
    def handleCommand(self, _commandObj: CommandObject) -> None:
       pass
 
-   def writeToFile(self, _file: str) -> None:
+   def getWritePath(self) -> str:
+      return path.join(self.mod.ConfigPath, self.commandType) + ".nut"
+
+   def shouldWriteToFile(self) -> bool:
+      return False
+
+   # writes the mod_config files
+   def writeToFile(self) -> None:
       pass
+
+   # returns a list of str results from writeToFile to be printed to the GUI
+   def returnWriteResult(self) -> List[str]:
+      return []
 
    def __str__ (self) -> str:
       return '{type}(commandType: {commandType} | Mod: {modID} | dbTableKey: {dbTableKey})'.format(type = self.__class__.__name__, commandType = self.commandType, modID = self.mod.ModID, dbTableKey = self.mod.DBPath)
@@ -119,18 +132,39 @@ class WriteString(CommandOption):
       self.toPrint = ""
 
    def handleCommand(self, _commandObj: CommandObject) -> None:
-      self.toPrint = "\n" + _commandObj.value
+      self.toPrint = self.getStringToPrint(_commandObj)
 
-   def writeToFile(self, _file: str) -> None:
-      with open(_file + ".nut", 'a') as f:
+   def getStringToPrint(self, _commandObj: CommandObject) -> str:
+      result = "\n" + _commandObj.value
+      for entry in _commandObj.extravalue:
+         result += "\n" + entry
+      return result
+
+   def shouldWriteToFile(self) -> bool:
+      return self.toPrint != ""
+
+   def writeToFile(self) -> str:
+      with open(self.getWritePath(), 'w') as f:
          f.write(self.returnFileHeader())
          f.write(self.toPrint)
-      gui.addMsg(self.returnWriteResult(self.toPrint))
+      return self.returnWriteResult()
+
+   def returnWriteResult(self) -> List[str]:
+      toPrint = [self.returnWriteResultHeader(self.toPrint)]
       self.toPrint = ""
+      return toPrint
 
 class WriteStringAppend(WriteString):
    def handleCommand(self, _commandObj: CommandObject) -> None:
-      self.toPrint += "\n" + _commandObj.value
+      self.toPrint += self.getStringToPrint(_commandObj)
+
+   def writeToFile(self) -> None:
+      fileExists = path.isfile(self.getWritePath())
+      with open(self.getWritePath(), 'a') as f:
+         if fileExists == False:
+            f.write(self.returnFileHeader())
+         f.write(self.toPrint)
+      return self.returnWriteResult()
 
 #Type that writes to DB and prints all rows
 class WriteDatabase(CommandOption):
@@ -162,24 +196,26 @@ class WriteDatabase(CommandOption):
       with db_ops(self.mod.DBPath) as cur:
          cur.execute('CREATE TABLE IF NOT EXISTS {}'.format(result.replace('"', '""')))
 
-
-   def writeToFile(self, _file: str) -> None:
+   def shouldWriteToFile(self) -> bool:
       # only write to file if it had updates in last parsing loop
-      if(self.changedSinceLastUpdate == False):
-         return
+      return self.changedSinceLastUpdate
 
+   def writeToFile(self) -> str:
       with db_ops(self.mod.DBPath) as cur:
          cur.execute('SELECT * FROM "{}"'.format(self.commandType.replace('"', '""')))
-         with open(_file + ".nut", 'w') as f:
+         with open(self.getWritePath(), 'w') as f:
             f.write(self.returnFileHeader())
             rows = cur.fetchall()
             for row in rows:
                f.write(self.getTemplate(row[0], row[1], row[2]))
-               
-      for line in self.toLog:
-         gui.addMsg(self.returnWriteResult(line))
-      self.toLog = []
+      return self.returnWriteResult()
+
+   def returnWriteResult(self) -> List[str]:
       self.changedSinceLastUpdate = False
+      toPrint = []
+      for line in self.toLog:
+         toPrint.append(self.returnWriteResultHeader(line))
+      return toPrint
 
    def handleCommand(self, _commandObj: CommandObject) -> None:
       self.changedSinceLastUpdate = True
@@ -191,9 +227,6 @@ class WriteDatabase(CommandOption):
          else:
             cur.execute('UPDATE "{}" SET value = ? WHERE modID = ? and settingID = ?'.format(self.commandType.replace('"', '""')), (_commandObj.extravalue[0], _commandObj.modID, _commandObj.value))
          self.toLog.append(self.getTemplate(_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
-
-      
-
 
 # Ingame mod settings menu
 class WriteModSetting(WriteDatabase):
