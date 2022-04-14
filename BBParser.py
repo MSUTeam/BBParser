@@ -70,8 +70,8 @@ class Mod:
          os.mkdir(self.ConfigPath)
       for optionType, optionObj in self.Options.items():
          if optionObj.shouldWriteToFile():
-            toPrint = optionObj.writeToFile()
-            for line in toPrint:
+            optionObj.writeToFile()
+            for line in optionObj.getWriteResult():
                gui.addMsg(line)
 
    def __str__ (self) -> str:
@@ -121,7 +121,7 @@ class CommandOption:
       pass
 
    # returns a list of str results from writeToFile to be printed to the GUI
-   def returnWriteResult(self) -> List[str]:
+   def getWriteResult(self) -> List[str]:
       return []
 
    def __str__ (self) -> str:
@@ -145,13 +145,12 @@ class WriteString(CommandOption):
    def shouldWriteToFile(self) -> bool:
       return self.toPrint != ""
 
-   def writeToFile(self) -> str:
+   def writeToFile(self) -> None:
       with open(self.getWritePath(), 'w') as f:
          f.write(self.returnFileHeader())
          f.write(self.toPrint)
-      return self.returnWriteResult()
 
-   def returnWriteResult(self) -> List[str]:
+   def getWriteResult(self) -> List[str]:
       toPrint = [self.returnWriteResultHeader(self.toPrint)]
       self.toPrint = ""
       return toPrint
@@ -166,7 +165,6 @@ class WriteStringAppend(WriteString):
          if fileExists == False:
             f.write(self.returnFileHeader())
          f.write(self.toPrint)
-      return self.returnWriteResult()
 
 #Type that writes to DB and prints all rows
 class WriteDatabase(CommandOption):
@@ -202,7 +200,7 @@ class WriteDatabase(CommandOption):
       # only write to file if it had updates in last parsing loop
       return self.changedSinceLastUpdate
 
-   def writeToFile(self) -> str:
+   def writeToFile(self) -> None:
       with db_ops(self.mod.DBPath) as cur:
          cur.execute('SELECT * FROM "{}"'.format(self.commandType.replace('"', '""')))
          with open(self.getWritePath(), 'w') as f:
@@ -210,9 +208,9 @@ class WriteDatabase(CommandOption):
             rows = cur.fetchall()
             for row in rows:
                f.write(self.getTemplate(row[0], row[1], row[2]))
-      return self.returnWriteResult()
 
-   def returnWriteResult(self) -> List[str]:
+
+   def getWriteResult(self) -> List[str]:
       self.changedSinceLastUpdate = False
       toPrint = []
       for line in self.toLog:
@@ -250,11 +248,11 @@ class LoopDone(Exception):
 
 class Database:
    def __init__(self) -> None:
-      self.mainFolderPath = "./default"
+      self.mainFolderPath = "./" + DBNAME
       self.modsFolderPath = self.mainFolderPath + "/mods/"
       self.pathsDatabasePath = self.mainFolderPath + "/paths_db.db"
       self.modConfigPath : str = ""
-      self.logPath = ""
+      self.logPath : str = ""
       self.Mods : Dict[str, Mod] = {}
       
 
@@ -585,25 +583,23 @@ class Database:
 
       gui.updateButtons()
       gui.updateOutput()
-      gui.updateStringVarText(gui.logPathVar, self.logPath)
-      gui.updateStringVarText(gui.dataPathVar, self.modConfigPath)
+      gui.updateStringVarText(gui.logPathVar, self.logPath) # type: ignore
+      gui.updateStringVarText(gui.dataPathVar, self.modConfigPath) # type: ignore
      
 
 
 # Handles the GUI element
 class GUI:
-   def __init__(self, _database : Database) -> None:
-      self.database = _database
-      self.database.gui = self
+   def __init__(self) -> None:
       self.PendingOutput : List[str] = []
       self.bannerImg = PhotoImage(file=resource_path("assets\\banner.gif"))  
-      self.bannerCanvas = Canvas(root, width = 792, height =82)
+      self.bannerCanvas = Canvas(root, width = 792, height = 82)
       self.bannerCanvas.create_image(0, 0, anchor="nw", image=self.bannerImg)
       self.bannerCanvas.grid(row=0, column=0, columnspan = 2)
 
       self.titleLabel = Label(root, text="BBParser")
       self.titleLabel.grid(row=1, column=0)
-      self.dbNameLabel = Label(root, text="Database: " + self.database.pathsDatabasePath)
+      self.dbNameLabel = Label(root, text="Database: " + database.pathsDatabasePath)
       self.dbNameLabel.grid(row=1, column=1)
 
       self.dataPathVarDefault = "Browse to your game directory (./Battle Brothers/data)"
@@ -642,8 +638,8 @@ class GUI:
 
       self.ResultEntry = Text(root)
       self.ResultEntry.grid(row=9, column = 0)
-      self.updateStringVarText(self.dataPathVar, "Data Folder Path: {dataPath}".format(dataPath = self.database.modConfigPath) if self.database.modConfigPath != "" else self.dataPathVarDefault)
-      self.updateStringVarText(self.logPathVar, "log.html Path: {logPath}".format(logPath = self.database.logPath) if self.database.logPath != "" else self.logPathVarDefault)
+      self.updateStringVarText(self.dataPathVar, "Data Folder Path: {dataPath}".format(dataPath = database.modConfigPath) if database.modConfigPath != "" else self.dataPathVarDefault)
+      self.updateStringVarText(self.logPathVar, "log.html Path: {logPath}".format(logPath = database.logPath) if database.logPath != "" else self.logPathVarDefault)
       self.updateButtons()
 
    def updateGameDirectory(self) -> None:
@@ -651,8 +647,8 @@ class GUI:
       if directory == None or len(directory.split("/")) < 2 or (DEBUGGING == False and directory.split("/")[-1] != "data"):
          self.addMsg("Bad Path! " + str(directory))
       else:
-         self.database.updateGameDirectory(directory + "/mod_config")
-         self.updateStringVarText(self.dataPathVar, "Data Folder Path: {dataPath}".format(dataPath = self.database.modConfigPath))
+         database.updateGameDirectory(directory + "/mod_config")
+         self.updateStringVarText(self.dataPathVar, "Data Folder Path: {dataPath}".format(dataPath = database.modConfigPath))
          self.addMsg("Directory selected successfully! " + str(directory))
       self.updateButtons()
       self.updateOutput()
@@ -662,8 +658,8 @@ class GUI:
       if directory == None or directory.name.split("/")[-1] != "log.html": # type: ignore
          self.addMsg("Bad Path! " + str(directory))
       else:
-         self.database.updateLogDirectory(directory.name) # type: ignore
-         self.updateStringVarText(self.logPathVar, "log.html Path: {logPath}".format(logPath = self.database.logPath))
+         database.updateLogDirectory(directory.name) # type: ignore
+         self.updateStringVarText(self.logPathVar, "log.html Path: {logPath}".format(logPath = database.logPath))
          self.addMsg("log.html selected successfully! " + directory.name) # type: ignore
       self.updateButtons()
       self.updateOutput()
@@ -678,29 +674,35 @@ class GUI:
          _button.config(state = "disabled")
 
    def updateButtons(self) -> None:
-      self.updateButtonStatus(self.runParseButton, self.database.isReadyToRun())
-      self.updateButtonStatus(self.deleteSingleModButton, self.database.modConfigPath != None)
-      # self.updateButtonStatus(self.deleteSingleSettingButton, self.database.modConfigPath != None)
+      self.updateButtonStatus(self.runParseButton, database.isReadyToRun())
+      self.updateButtonStatus(self.deleteSingleModButton, database.modConfigPath != None)
+      # self.updateButtonStatus(self.deleteSingleSettingButton, database.modConfigPath != None)
 
    def resetStringVars(self) -> None:
       self.updateStringVarText(self.dataPathVar, self.dataPathVarDefault)
       self.updateStringVarText(self.logPathVar, self.logPathVarDefault)
 
+   def runIfReady(self) -> None:
+      if(database.isReadyToRun()):
+         root.iconify()
+         self.runFileParse()
+
+
    def runFileParse(self) -> None:
       self.clearOutput()
       self.addMsg("Currently parsing file!")
       self.runParseButton.configure(text = "Stop Updating", command= self.stopParse)
-      self.database.clearLoopVars()
-      self.database.parseLogInLoop()
+      database.clearLoopVars()
+      database.parseLogInLoop()
 
    def stopParse(self) -> None:
       self.runParseButton.configure( text = "Update settings", command=self.runFileParse)
-      self.database.StopLoop = True
+      database.StopLoop = True
 
    def runInputParse(self) -> None:
       self.addMsg("Trying to parse input")
       text = self.ResultEntry.get("1.0",END)
-      self.database.parseLocalInput(text)
+      database.parseLocalInput(text)
 
    def deleteAllSettings(self) -> None:
       answer = askyesno("delete all settings", "Are you sure? This will delete all files in your mod_config and the database.")
@@ -708,7 +710,7 @@ class GUI:
          self.clearOutput()
          self.resetStringVars()
          self.updateButtons()
-         self.database.deleteAllSettings()
+         database.deleteAllSettings()
       self.updateOutput()
 
    def deleteSingleMod(self) -> None:
@@ -717,7 +719,7 @@ class GUI:
 
       l = Label(win, text="Select mod or setting")
       l.grid(row=0, column=0)
-      mods = self.database.Mods
+      mods = database.Mods
       modList = []
       for mod, modObj in mods.items():
          modList.append(mod)
@@ -731,7 +733,7 @@ class GUI:
       def removeSetting():
          setting = OptionVar.get()
          if(str(setting) != "None"): #if you select the empty first item it returns string "None" instead of None so I just check against that
-            self.database.delete(setting)
+            database.delete(setting)
          win.destroy()
 
       b = Button(win, text="Okay", command=removeSetting)
@@ -741,7 +743,6 @@ class GUI:
    def addMsg(self, _text : str, _newline : bool = True) -> None:
       if _newline:
          _text += "\n"
-      
       self.PendingOutput.append(_text)
 
    def updateOutput(self) -> None:
@@ -765,10 +766,9 @@ if(len(sys.argv) > 1):
 else:
    DBNAME = 'default'
 
-defaultDB = Database()
-
-gui = GUI(defaultDB)
-
+database = Database()
+gui = GUI()
+gui.runIfReady()
 
 
 root.mainloop()
