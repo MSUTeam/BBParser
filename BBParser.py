@@ -36,6 +36,8 @@ def resource_path(relative_path: str) -> str:
    return os.path.join(os.path.abspath("."), relative_path) 
 
 root = Tk()
+root.title("BBParser")
+root.iconphoto(False, PhotoImage(file=resource_path("assets\\icon.png")))
 
 
 # The result of a command string extracted from the log or other
