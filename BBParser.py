@@ -48,7 +48,6 @@ class CommandObject:
    value : str
    extravalue : List[str]
 
-
 class Mod:
    def __init__(self, _modID: str, _path: str, _dbPath: str) -> None:
       self.ModID = _modID
@@ -57,10 +56,10 @@ class Mod:
       self.Options: Dict[str, CommandOption] = {}
 
    def handleCommand(self, _commandObj: CommandObject) -> None:
-      commandType = _commandObj.commandType
-      if (commandType not in self.Options) or (self.Options[commandType] == None):
-         self.Options[commandType] = CommandOption.getCommandClass(commandType, self)
-      self.Options[commandType].handleCommand(_commandObj)
+      commandOption = CommandOption.getCommandClass(_commandObj.commandType, self)
+      if commandOption.commandType not in self.Options:
+         self.Options[commandOption.commandType] = commandOption
+      self.Options[commandOption.commandType].handleCommand(_commandObj)
 
    def initDatabase(self) -> None:
       pass
@@ -255,10 +254,10 @@ class Database:
       self.logPath : str = ""
       self.Mods : Dict[str, Mod] = {}
       
-
       self.TotalWritten : List[str] = []
       self.PreviousReadIndex = 0
       self.StopLoop = False
+      self.IsLooping = False
       self.LastUpdateTime : float = 0.0
       self.LastBootTime : List[float] = [0, 0, 0]
 
@@ -280,6 +279,8 @@ class Database:
          gamedir = cur.fetchone()
          if(gamedir[0] != None):
             self.modConfigPath = gamedir[0]
+         else:
+            self.modConfigPath = ""
             
 
          # Create log.html path database entry
@@ -287,6 +288,8 @@ class Database:
          logdir = cur.fetchone()
          if(logdir[0] != None):
             self.logPath = logdir[0]
+         else:
+            self.logPath = ""
             
 
    def initMainFolder(self) -> None:
@@ -356,7 +359,6 @@ class Database:
       try:
          if self.StopLoop == True:
             raise LoopDone
-
          currentTimeFromLog = os.path.getmtime(self.logPath)
 
          if self.LastUpdateTime != currentTimeFromLog:
@@ -374,9 +376,8 @@ class Database:
             self.TotalWritten = []
 
       except LoopDone as e:
-         gui.addMsg("Completed!")
-         gui.updateOutput()
          self.clearLoopVars()
+         self.IsLooping = False
          if DEBUGGING:
             os.remove("./log.html")
 
@@ -418,6 +419,7 @@ class Database:
       self.LastUpdateTime = 0.0
       self.resetReadIndex()
       self.StopLoop = False
+      self.IsLooping = False
       global DEBUGGING
       if DEBUGGING:
          self.writeTestLog()
@@ -531,21 +533,7 @@ class Database:
                cur.execute("DROP TABLE IF EXISTS " + _commandType)
             gui.addMsg("Deleted data " + _commandType + " from database " + _path)
          except:
-            gui.addMsg("Could not delete data " + _commandType + " from database " + _path)
-         
-
-   def deleteAllSettings(self) -> None:
-      os.remove(self.pathsDatabasePath)
-
-      if path.isdir(self.modsFolderPath):
-         gui.addMsg("Deleted folder " + self.modsFolderPath)
-         shutil.rmtree(self.modsFolderPath)
-
-      if self.modConfigPath != None and path.isdir(self.modConfigPath):
-         gui.addMsg("Deleted folder " + self.modConfigPath)
-         shutil.rmtree(self.modConfigPath)
-         
-      self.initDatabase()
+            gui.addMsg("Could not delete data " + _commandType + " from database " + _path)      
 
    def scrub(self, _string : str) -> str:
       return ''.join( chr for chr in _string if (chr.isalnum() or chr == "+" or chr == "_" or chr == "-" or chr == "/"))
@@ -616,14 +604,14 @@ class GUI:
       self.logPathButton =  Button(text="Browse", command=self.updateLogDirectory)
       self.logPathButton.grid(row=4, column=1)
 
-      self.deleteSingleSettingLabel = Label(root, text = "Delete all settings for a select mod.")
+      self.deleteSingleSettingLabel = Label(root, text = "Delete files for a select mod.")
       self.deleteSingleSettingLabel.grid(row=6, column=0)
-      self.deleteSingleModButton = Button(root, text="Delete mod settings", command=self.deleteSingleMod, state="disabled")
+      self.deleteSingleModButton = Button(root, text="Delete mod files", command=self.deleteSingleMod, state="disabled")
       self.deleteSingleModButton.grid(row=6, column=1)
 
-      self.deleteAllLabel = Label(root, text = "Delete all settings to get a clean install")
+      self.deleteAllLabel = Label(root, text = "Delete all files to get a clean install")
       self.deleteAllLabel.grid(row=7, column=0)
-      self.deleteAllButton = Button(root, text="Delete all settings", command=self.deleteAllSettings, state="active")
+      self.deleteAllButton = Button(root, text="Delete all files", command=self.deleteAllSettings, state="active")
       self.deleteAllButton.grid(row=7, column=1)
 
       self.runParseButton = Button(root, text = "Update settings", command=self.runFileParse, state="disabled")
@@ -675,7 +663,12 @@ class GUI:
 
    def updateButtons(self) -> None:
       self.updateButtonStatus(self.runParseButton, database.isReadyToRun())
-      self.updateButtonStatus(self.deleteSingleModButton, database.modConfigPath != None)
+      self.updateButtonStatus(self.deleteSingleModButton, database.modConfigPath != None and database.IsLooping == False and len(database.Mods) > 0)
+      self.updateButtonStatus(self.deleteAllButton, database.IsLooping == False)
+      if database.IsLooping:
+         self.runParseButton.configure(text = "Stop Parsing", command= self.stopParse)
+      else:
+         self.runParseButton.configure( text = "Parse log.html", command=self.runFileParse)
       # self.updateButtonStatus(self.deleteSingleSettingButton, database.modConfigPath != None)
 
    def resetStringVars(self) -> None:
@@ -687,17 +680,20 @@ class GUI:
          root.iconify()
          self.runFileParse()
 
-
    def runFileParse(self) -> None:
       self.clearOutput()
       self.addMsg("Currently parsing file!")
-      self.runParseButton.configure(text = "Stop Updating", command= self.stopParse)
+      database.IsLooping = True
+      self.updateButtons()
       database.clearLoopVars()
       database.parseLogInLoop()
 
    def stopParse(self) -> None:
-      self.runParseButton.configure( text = "Update settings", command=self.runFileParse)
       database.StopLoop = True
+      database.IsLooping = False
+      self.addMsg("Stopped Parsing!")
+      self.updateOutput()
+      self.updateButtons()
 
    def runInputParse(self) -> None:
       self.addMsg("Trying to parse input")
@@ -709,22 +705,25 @@ class GUI:
       if answer:
          self.clearOutput()
          self.resetStringVars()
+         self.stopParse()
+         self.clearOutput()
+         deleteAllSettingsGlobal()
          self.updateButtons()
-         database.deleteAllSettings()
       self.updateOutput()
 
    def deleteSingleMod(self) -> None:
       win = Toplevel()
-      win.wm_title("Delete mod")
+      win.wm_title("Delete mod files")
 
-      l = Label(win, text="Select mod or setting")
+      l = Label(win, text="Select mod or file")
       l.grid(row=0, column=0)
       mods = database.Mods
       modList = []
       for mod, modObj in mods.items():
          modList.append(mod)
          for option, optionObj in modObj.Options.items():
-            modList.append(mod + " : " + optionObj.commandType)
+            combinedString = mod + " : " + optionObj.commandType
+            modList.append(combinedString)
 
       OptionVar = StringVar(win)
       w = OptionMenu(win, OptionVar, *modList)
@@ -768,6 +767,20 @@ else:
 
 database = Database()
 gui = GUI()
+
+def deleteAllSettingsGlobal():
+   global database
+   os.remove(database.pathsDatabasePath)
+   if path.isdir(database.modsFolderPath):
+      gui.addMsg("Deleted folder " + database.modsFolderPath)
+      shutil.rmtree(database.modsFolderPath)
+
+   if database.modConfigPath != None and path.isdir(database.modConfigPath):
+      gui.addMsg("Deleted folder " + database.modConfigPath)
+      shutil.rmtree(database.modConfigPath)
+
+   database = Database()
+
 gui.runIfReady()
 
 
