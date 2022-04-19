@@ -17,11 +17,14 @@ Currently, the program accepts strings of the following format:
 // _value is an arbitrary amount of payload arguments
 ```
 Examples:
-`@BBPARSER@ModSetting@mod_msu@GreetingEnumSetting@GoodBye@`
+
+```@BBPARSER@ModSetting@mod_msu@GreetingEnumSetting@GoodBye@```
+
 This will set the value of the setting "GreetingEnumSetting" of mod_msu to "GoodBye".
 
 
-`@BBPARSER@Greeting@mod_msu@this.logInfo("Contact the MSU team using the following email adress:\n@msu.team\@protonmail.com@");`
+```@BBPARSER@Greeting@mod_msu@this.logInfo("Contact the MSU team using the following email adress:\n@msu.team\@protonmail.com@");```
+
 This will be turned into 'data/mod_msu/Greeting.nut' with the following content:
 ```squirrel
 this.logInfo("Contact the MSU team using the following email adress:\n
