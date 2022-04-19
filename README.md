@@ -27,7 +27,7 @@ This will set the value of the setting "GreetingEnumSetting" of mod_msu to "Good
 
 This will be turned into 'data/mod_msu/Greeting.nut' with the following content:
 ```squirrel
-this.logInfo("Contact the MSU team using the following email adress:\n
+this.logInfo("Contact the MSU team using the following email address:\n
 msu.team@protonmail.com
 ");
 ```
