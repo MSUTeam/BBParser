@@ -31,12 +31,37 @@ def resource_path(relative_path: str) -> str:
    return os.path.join(os.path.abspath("."), relative_path) 
 
 # The result of a command string extracted from the log or other
-@dataclass
 class CommandObject:
-   commandType : str
-   modID : str
-   value : str
-   extravalue : List[str]
+   @staticmethod
+   def getCommandObj(_command):
+      splitCommand = CommandObject.splitCommand(_command)
+      if CommandObject.validateCommand(splitCommand):
+         return CommandObject(splitCommand)
+
+   @staticmethod
+   def splitCommand(_command):
+      return list(map(lambda string: string.replace("\@", "@"), re.findall("""(?<=@).*?[^\\\\](?=@)""", _command)))
+
+   @staticmethod
+   def validateCommand(_command : List[str]) -> bool:
+      #_command = [self.scrub(entry) for entry in _command]
+      if len(_command) < 3:
+         print("Command {command} is not valid! Too few entries.".format(command = str(_command)))
+         return False
+      for entry in _command:
+         if len(entry) == 0:
+            print("Command {command} is not valid! Entry {entry} length is 0.".format(command = str(_command), entry = entry))
+      return True
+
+   def __init__(self, _commandList) -> None:
+      self.commandType : str = _commandList[0]
+      self.modID : str = _commandList[1]
+      self.value : List[str] = _commandList[2:]
+
+
+   # def scrub(self, _string : str) -> str:
+   #    return ''.join( chr for chr in _string if (chr.isalnum() or chr == "+" or chr == "_" or chr == "-" or chr == "/" or chr == "@"))
+
 
 class Mod:
    def __init__(self, _modID: str, _path: str, _dbPath: str) -> None:
@@ -132,8 +157,8 @@ class WriteString(CommandOption):
       self.toPrint = self.getStringToPrint(_commandObj)
 
    def getStringToPrint(self, _commandObj: CommandObject) -> str:
-      result = "\n" + _commandObj.value
-      for entry in _commandObj.extravalue:
+      result = "\n"
+      for entry in _commandObj.value:
          result += "\n" + entry
       return result
 
@@ -216,13 +241,13 @@ class WriteDatabase(CommandOption):
    def handleCommand(self, _commandObj: CommandObject) -> None:
       self.changedSinceLastUpdate = True
       with db_ops(self.mod.DBPath) as cur:
-         cur.execute('SELECT * FROM "{}" WHERE settingID = ?'.format(self.commandType.replace('"', '""')), (_commandObj.value,))
+         cur.execute('SELECT * FROM "{}" WHERE settingID = ?'.format(self.commandType.replace('"', '""')), (_commandObj.value[0],))
          rows = cur.fetchall()
          if(len(rows) == 0):
-            cur.execute('INSERT INTO "{}" VALUES (?, ?, ?)'.format(self.commandType.replace('"', '""')), (_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
+            cur.execute('INSERT INTO "{}" VALUES (?, ?, ?)'.format(self.commandType.replace('"', '""')), (_commandObj.modID, _commandObj.value[0], _commandObj.value[1]))
          else:
-            cur.execute('UPDATE "{}" SET value = ? WHERE modID = ? and settingID = ?'.format(self.commandType.replace('"', '""')), (_commandObj.extravalue[0], _commandObj.modID, _commandObj.value))
-         self.toLog.append(self.getTemplate(_commandObj.modID, _commandObj.value, _commandObj.extravalue[0]))
+            cur.execute('UPDATE "{}" SET value = ? WHERE modID = ? and settingID = ?'.format(self.commandType.replace('"', '""')), (_commandObj.value[1], _commandObj.modID, _commandObj.value[0]))
+         self.toLog.append(self.getTemplate(_commandObj.modID, _commandObj.value[0], _commandObj.value[1]))
 
 # Ingame mod settings menu
 class WriteModSetting(WriteDatabase):
@@ -327,7 +352,7 @@ class Database:
          
          if self.isNewBoot():
             self.setBootTime()
-            self.resetReadIndex()
+            self.PreviousReadIndex = 0
         
          self.parseGameLog()
          self.writeFiles()
@@ -354,57 +379,31 @@ class Database:
             return True
       return False
 
+   def finishLoop(self):
+      self.clearLoopVars()
+
    def clearLoopVars(self) -> None:
       self.guiOutput = []
       self.LastBootTime = [0, 0, 0]
       self.LastUpdateTime = 0.0
-      self.resetReadIndex()
+      self.PreviousReadIndex = 0
 
    def parseGameLog(self) -> None:
       commands = self.getCommandsFromLog()
       for command in commands:
-         if self.validateCommandObj(command) == False:
+         commandObj = CommandObject.getCommandObj(command)
+         self.PreviousReadIndex += 1
+         if commandObj == None:
             continue
-         commandObj = self.getCommandObj(command)
-         self.increaseReadIndex()
          modID = commandObj.modID
          if modID not in self.Mods:
             self.Mods[modID] = Mod(modID, self.modConfigPath, self.modsFolderPath)
          self.Mods[modID].handleCommand(commandObj)
          
-
-   def finishLoop(self):
-      self.clearLoopVars()
-
-   def validateCommandObj(self, _command : List[str]) -> bool:
-      _command = [self.scrub(entry) for entry in _command]
-      if(len(_command)) < 3:
-         print("Command {command} is not valid! Too few entries.".format(command = str(_command)))
-         return False
-      for entry in _command:
-         if len(entry) == 0:
-            print("Command {command} is not valid! Entry {entry} length is 0.".format(command = str(_command), entry = entry))
-
-      return True
-
-   def getCommandObj(self, _command : List[str]) -> CommandObject:
-      extravalue = []
-      if len(_command) > 3:
-         extravalue = _command[3:]
-      commandObj = CommandObject(commandType = _command[0], modID = _command[1], value = _command[2], extravalue = extravalue)
-      return commandObj
-
-   def increaseReadIndex(self, _value : int = 1) -> None:
-      self.PreviousReadIndex += _value
-
-   def resetReadIndex(self) -> None:
-      self.PreviousReadIndex = 0
-
    def getCommandsFromLog(self) -> List[List[str]]:
       with open(self.logPath) as fp: 
-         regexResult = re.findall('(?:<div class="text">BBPARSER;)(.+?)(?=<\/div>)', fp.readline())
-         result = list(map(lambda entry: entry.split(";"), regexResult))[self.PreviousReadIndex:]
-         return result
+         regexResult = re.findall('(?:<div class="text">@BBPARSER)(.+?)(?=<\/div>)', fp.readline())
+         return regexResult[self.PreviousReadIndex:]
 
    def writeFiles(self) -> None:
       if path.isdir(self.modConfigPath) == False:
@@ -468,9 +467,6 @@ class Database:
             self.guiOutput.append("Deleted data " + _commandType + " from database " + _path)
          except:
             self.guiOutput.append("Could not delete data " + _commandType + " from database " + _path)      
-
-   def scrub(self, _string : str) -> str:
-      return ''.join( chr for chr in _string if (chr.isalnum() or chr == "+" or chr == "_" or chr == "-" or chr == "/"))
 
    def writeTestLog(self) -> None:
       with open("log.html", "w") as log:
