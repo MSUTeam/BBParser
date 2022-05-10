@@ -258,7 +258,7 @@ class WriteModSetting(WriteDatabase):
 # Custom keybind handler settings menu option
 class WriteKeybind(WriteDatabase):
    def __init__(self,  _commandType, _mod: Mod) -> None:
-      super().__init__( _commandType, _mod, """this.MSU.System.Keybinds.updateFromPersistence("$modID", "$settingID", "$value");\n""", ["modID", "settingID", "value"])
+      super().__init__( _commandType, _mod, """this.MSU.System.Keybinds.updateFromPersistence("$modID", "$settingID", $value);\n""", ["modID", "settingID", "value"])
 
 
 class LoopDone(Exception):
