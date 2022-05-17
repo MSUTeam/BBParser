@@ -7,7 +7,7 @@ To turn it into an exe, use pyinstaller. Either add it to your editor, or instal
 
 Currently, the program accepts strings of the following format:
 ```squirrel
-@BBPARSER@_fileID@_modID@_value0@_value1@...
+@BBPARSER@_fileID@_modID@_value0@_value1@...@
 // '@' is the separator between individual statements and at the beginning and the end of the command.
 // To escape an '@', use '\@'
 // BBPARSER must be present as the first entry of the string
