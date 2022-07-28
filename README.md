@@ -3,7 +3,7 @@ A python application for parsing `log.html` of Battle Brothers, extracting data 
 It is primarly used in conjunction with the [MSU mod](https://github.com/MSUTeam/mod_MSU/wiki/Persistent-Data).
 
 ## For users: 
-Head to the [wiki page](https://github.com/MSUTeam/BBParser/wiki/BBParser)\ to learn how to use it.
+Head to the [wiki page](https://github.com/MSUTeam/BBParser/wiki/BBParser) to learn how to use it.
 
 ## For developers:
 
