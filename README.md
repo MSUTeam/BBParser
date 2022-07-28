@@ -2,6 +2,11 @@
 A python application for parsing `log.html` of Battle Brothers, extracting data and writing the results to the data folder.\
 It is primarly used in conjunction with the [MSU mod](https://github.com/MSUTeam/mod_MSU/wiki/Persistent-Data).
 
+## For users: 
+Head to the [wiki page](https://github.com/MSUTeam/BBParser/wiki/BBParser)\ to learn how to use it.
+
+## For developers:
+
 To turn it into an exe, use pyinstaller. Either add it to your editor, or install it with `pip install pyinstaller`. Navigate to the script directory and run 
 `build.ps1` or `build.bat`.
 
