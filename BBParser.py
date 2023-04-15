@@ -16,6 +16,7 @@ from typing import Dict, List, Generator, Union
 import traceback
 
 printDebug = None
+VERSION = "1.0.1"
 
 @contextmanager
 def db_ops(db_name: str) -> Generator:
@@ -503,7 +504,7 @@ class GUI:
       self.bannerCanvas.create_image(0, 0, anchor="nw", image=self.bannerImg)
       self.bannerCanvas.grid(row=0, column=0, columnspan = 2)
 
-      self.titleLabel = Label(self.root, text="BBParser")
+      self.titleLabel = Label(self.root, text="BBParser v" + VERSION)
       self.titleLabel.grid(row=1, column=0)
       #self.dbNameLabel = Label(self.root, text="Database: " + database.pathsDatabasePath)
       self.dbNameLabel = Label(self.root, text="Database: ")
