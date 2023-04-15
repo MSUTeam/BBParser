@@ -402,8 +402,15 @@ class Database:
          
    def getCommandsFromLog(self) -> List[List[str]]:
       with open(self.logPath) as fp: 
-         regexResult = re.findall('(?:<div class="text">@BBPARSER)(.+?)(?=<\/div>)', fp.readline())
-         return regexResult[self.PreviousReadIndex:]
+         # readline() would work except that errors and such can break up the line (via <br> and such)
+         # So we get all lines, then flatten the results
+         text = fp.readlines()
+         regexResult = [re.findall('(?:<div class="text">@BBPARSER)(.+?)(?=<\/div>)', line) for line in text]
+         flatResult = []
+         for result in regexResult:
+            for item in result:
+               flatResult.append(item)
+         return flatResult[self.PreviousReadIndex:]
 
    def writeFiles(self) -> None:
       if path.isdir(self.modConfigPath) == False:
