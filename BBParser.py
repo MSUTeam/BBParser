@@ -727,6 +727,9 @@ class BBParser:
             os.remove("./log.html")
 
       except Exception as e:
+         self.gui.addMsg("BBParser encountered an error: " +  str(e))
+         self.gui.addMsg(traceback.format_exc())
+         self.gui.updateOutput()
          print("BBParser encountered an error: " +  str(e))
          print(traceback.format_exc())
 
