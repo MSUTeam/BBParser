@@ -269,9 +269,8 @@ class LoopDone(Exception):
 # Handles the Database connection
 
 class Database:
-   def __init__(self, _bbparser) -> None:
-      self.bbparser = _bbparser
-      self.mainFolderPath = "./" + self.bbparser.DBNAME
+   def __init__(self, mainFolderName) -> None:
+      self.mainFolderPath = "./" + mainFolderName
       self.modsFolderPath = self.mainFolderPath + "/mods/"
       self.pathsDatabasePath = self.mainFolderPath + "/paths_db.db"
       self.modConfigPath : str = ""
@@ -325,9 +324,9 @@ class Database:
                   self.Mods[name] = Mod(name, dirpath, self.modsFolderPath)
                   printDebug("Added mod: " + str(self.Mods[name]))
          else:
-            modname = dirpath.split("\\")[-1]
+            modname = os.path.basename(dirpath)
             for filename in filenames:
-               filename = filename.split(".")[0]
+               filename, _ = os.path.splitext(filename)
                if filename not in self.Mods[modname].Options:
                   self.Mods[modname].Options[filename] = CommandOption.getCommandClass(filename, self.Mods[modname])
          idx += 1
@@ -497,9 +496,9 @@ class GUI:
       self.bbparser = _bbparser
       self.root = Tk()
       self.root.title("BBParser")
-      self.root.iconphoto(False, PhotoImage(file=resource_path("assets\\icon.png")))
+      self.root.iconphoto(False, PhotoImage(file=resource_path("assets/icon.png")))
       self.PendingOutput : List[str] = []
-      self.bannerImg = PhotoImage(file=resource_path("assets\\banner.gif"))  
+      self.bannerImg = PhotoImage(file=resource_path("assets/banner.gif"))
       self.bannerCanvas = Canvas(self.root, width = 792, height = 82)
       self.bannerCanvas.create_image(0, 0, anchor="nw", image=self.bannerImg)
       self.bannerCanvas.grid(row=0, column=0, columnspan = 2)
@@ -590,7 +589,7 @@ class BBParser:
       self.setupGUI()
 
    def setupDataBase(self):
-      self.database = Database(self)
+      self.database = Database(self.DBNAME)
 
    def setupGUI(self):
       self.gui = GUI(self)
@@ -805,5 +804,23 @@ class BBParser:
       self.gui.updateStringVarText(self.gui.logPathVar, self.database.logPath) # type: ignore
       self.gui.updateStringVarText(self.gui.dataPathVar, self.database.modConfigPath) # type: ignore
 
-bbparser = BBParser()
-bbparser.start()
+
+if len(sys.argv) == 1 or sys.argv[1] == "start":
+   bbparser = BBParser()
+   bbparser.start()
+
+elif sys.argv[1] == "parse":
+   if len(sys.argv) < 4:
+      print("Usage: BBParser.py parse <game-dir> <log-filename>")
+      sys.exit(1)
+
+   printDebug = print
+
+   database = Database("default")
+   database.updateGameDirectory(os.path.join(sys.argv[2], "mod_config"))
+   database.updateLogDirectory(sys.argv[3])
+   database.parseGameLog()
+   database.writeFiles()
+
+else:
+   print(f'Don\'t know how to perform "{sys.argv[1]}"')
